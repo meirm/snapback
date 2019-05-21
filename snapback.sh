@@ -11,6 +11,16 @@ export wsnaps=4
 #Number of months to keep snaps:
 export msnaps=12
 
+function undel {
+	RECFROM=$TARGETBASE/$1 
+	if [ ! -d $RECFROM ]; then
+		echo "Critical: directory $RECFROM doesn't exist" 1>&2 ; exit 1
+	fi
+	for SOURCE in $DIRS; do
+		rsync -av $RSYNCPARAMS --ignore-existing $RECFROM/$SOURCE/. /$SOURCE/.
+	done
+}
+
 function hourly {
 	snapremount rw;
 	rm -rf $TARGETBASE/hour-$hsnaps
@@ -96,19 +106,26 @@ function sampleconfig {
 	echo "RSYNC_PARAMS='--max-size=1.5m'"
 }
 
+
+
 if [ -f ~/.snapshotrc ]; then
 	source	~/.snapshotrc
 else
 	printusage ;
 	exit 1;
 fi
+
 function snapremount {
 	true # mount -o remount,$1 $TARGETBASE
 }
+
 while [ $# -gt 0 ];  do # {
 case $1 in
 	--conf) 
 	source $2
+	;;
+	--dry-run)
+	RSYNCPARAMS="--dry-run";
 	;;
 	--rw)
 	snapremount rw;
@@ -146,6 +163,10 @@ case $1 in
 	;;
 	--monthly)
 	monthly ;
+	;;
+	--undel)
+	undel $2 ;
+	shift
 	;;
 	--sampleconfig|-s)
 	sampleconfig
