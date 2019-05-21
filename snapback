@@ -11,6 +11,17 @@ export wsnaps=4
 #Number of months to keep snaps:
 export msnaps=12
 
+function recover {
+	RECFROM=$TARGETBASE/$1 
+	if [ ! -d $RECFROM ]; then
+		echo "Critical: directory $RECFROM doesn't exist" 1>&2 ; exit 1
+	fi
+	for SOURCE in $DIRS; do
+		rsync -av $RSYNCPARAMS $RECFROM/$SOURCE/. /$SOURCE/.
+	done
+}
+
+
 function undel {
 	RECFROM=$TARGETBASE/$1 
 	if [ ! -d $RECFROM ]; then
@@ -19,6 +30,18 @@ function undel {
 	for SOURCE in $DIRS; do
 		rsync -av $RSYNCPARAMS --ignore-existing $RECFROM/$SOURCE/. /$SOURCE/.
 	done
+}
+
+function tag {
+	TAGFROM=$TARGETBASE/$1 
+	TAGTO=$TARGETBASE/$2 
+	if [ ! -d $TAGFROM ]; then
+		echo "Critical: directory $TAGFROM doesn't exist" 1>&2 ; exit 1
+	fi
+	if [ -d $TAGTO ]; then
+		echo "Critical: directory $TAGTO already exist" 1>&2 ; exit 1
+	fi
+	cp -al $TAGFROM $TAGTO
 }
 
 function hourly {
@@ -79,6 +102,8 @@ function printusage {
 	echo "Usage:"
 	echo 
 	echo $0
+	echo "$0 --undel <snapdir> # i.e. hour-1"
+	echo "$0 --tag <snapdir> <tag># i.e. hour-1 last-working"
 	echo $0 --init
 	echo $0 --hourly
 	echo $0 --daily
@@ -107,9 +132,9 @@ function sampleconfig {
 }
 
 
-
-if [ -f ~/.snapshotrc ]; then
-	source	~/.snapshotrc
+SNAPSHOTRC=${SNAPSHOTRC:-~/.snapshotrc}
+if [ -f $SNAPSHOTRC ]; then
+	source $SNAPSHOTRC
 else
 	printusage ;
 	exit 1;
@@ -119,6 +144,10 @@ function snapremount {
 	true # mount -o remount,$1 $TARGETBASE
 }
 
+if [ $# -eq 0 ] ; then
+	echo "Usage: snapback {--tag|--help|--undel|--init|--hourly|--daily|--weekly|--monthly}"
+	exit 0
+fi
 while [ $# -gt 0 ];  do # {
 case $1 in
 	--conf) 
@@ -164,9 +193,17 @@ case $1 in
 	--monthly)
 	monthly ;
 	;;
+	--recover)
+	recover $2 ;
+	shift
+	;;
 	--undel)
 	undel $2 ;
 	shift
+	;;
+	--tag)
+	tag $2 $3 ;
+	shift; shift;
 	;;
 	--sampleconfig|-s)
 	sampleconfig
