@@ -45,8 +45,7 @@ function tag {
 }
 
 function hourly {
-	snapremount rw;
-	rm -rf $TARGETBASE/hour-$hsnaps
+	if [ -d $TARGETBASE/hour-$hsnaps] ; then rm -rf $TARGETBASE/hour-$hsnaps; fi
 	for i in `seq 2 $hsnaps | tac`;do
 		(( next = i - 1 ))
 		mv $TARGETBASE/hour-$next $TARGETBASE/hour-$i
@@ -56,42 +55,37 @@ function hourly {
 		mkdir -p $TARGETBASE/hour-0/$SOURCE;
 		rsync -av --delete $RSYNC_PARAMS $RSYNCPARAMS $SOURCE/. $TARGETBASE/hour-0/$SOURCE/.
 	done
-	snapremount ro;
 
-}
-
-function monthly {
-	snapremount rw;
-	rm -rf $TARGETBASE/month-$msnaps
-	for i in `seq 1 $msnaps | tac`;do
-		(( next = i - 1 ))
-		mv $TARGETBASE/month-$next $TARGETBASE/month-$i
-	done
-	mv $TARGETBASE/week-$wsnaps $TARGETBASE/month-0
-	snapremount ro;
 }
 
 function daily {
-	snapremount rw;
-	rm -rf $TARGETBASE/day-$dsnaps
+	if [ -d $TARGETBASE/day-$dsnaps ]; then rm -rf $TARGETBASE/day-$dsnaps; fi
 	for i in `seq 1 $dsnaps | tac`;do
 		(( next = i - 1 ))
 		mv $TARGETBASE/day-$next $TARGETBASE/day-$i
 	done
 
 	cp -al $TARGETBASE/hour-$hsnaps $TARGETBASE/day-0
-	snapremount ro;
 }
 
 function weekly {
-	snapremount rw;
-	rm -rf $TARGETBASE/week-$wsnaps
+	if [ -d $TARGETBASE/week-$wsnaps ]; then rm -rf $TARGETBASE/week-$wsnaps; fi
 	for i in `seq 1 $wsnaps | tac`;do
 		(( next = i - 1 ))
 		mv $TARGETBASE/week-$next $TARGETBASE/week-$i
 	done
-	mv $TARGETBASE/day-$dsnaps $TARGETBASE/week-0
-	snapremount ro;
+	#mv $TARGETBASE/day-$dsnaps $TARGETBASE/week-0
+	cp -al $TARGETBASE/day-$dsnaps $TARGETBASE/week-0
+}
+
+function monthly {
+	if [ -d  $TARGETBASE/month-$msnaps ]; then rm -rf $TARGETBASE/month-$msnaps; fi
+	for i in `seq 1 $msnaps | tac`;do
+		(( next = i - 1 ))
+		mv $TARGETBASE/month-$next $TARGETBASE/month-$i
+	done
+	#mv $TARGETBASE/week-$wsnaps $TARGETBASE/month-0
+	cp -al $TARGETBASE/week-$wsnaps $TARGETBASE/month-0
 }
 
 
@@ -140,10 +134,6 @@ else
 	exit 1;
 fi
 
-function snapremount {
-	true # mount -o remount,$1 $TARGETBASE
-}
-
 if [ $# -eq 0 ] ; then
 	echo "Usage: snapback {--tag|--help|--undel|--init|--hourly|--daily|--weekly|--monthly}"
 	exit 0
@@ -156,14 +146,7 @@ case $1 in
 	--dry-run)
 	RSYNCPARAMS="--dry-run";
 	;;
-	--rw)
-	snapremount rw;
-	;;
-	--ro)
-	snapremount ro;
-	;;
 	--delete)
-	snapremount rw;
 	SOURCE=$2
 	if [ -d "$TARGETBASE/hour-0/$SOURCE" ] ; then 
 		rm -rf $TARGETBASE/hour-0/$SOURCE;
@@ -171,15 +154,12 @@ case $1 in
 		echo "ERROR: could not find path $TARGETBASE/hour-0/$SOURCE";
 		exit 1;
 	fi
-	snapremount ro;
 	;;
 	--init)
-	snapremount rw;
 	for mydir in `seq 0 $hsnaps`;do  mkdir -p $TARGETBASE/hour-$mydir;done
 	for mydir in `seq 0 $dsnaps`;do  mkdir -p $TARGETBASE/day-$mydir;done
 	for mydir in `seq 0 $wsnaps`;do  mkdir -p $TARGETBASE/week-$mydir;done
 	for mydir in `seq 0 $msnaps`;do  mkdir -p $TARGETBASE/month-$mydir;done
-	snapremount ro;
 	;;	
 	--hourly)
 	hourly ;
