@@ -45,7 +45,7 @@ function tag {
 }
 
 function hourly {
-	if [ -d $TARGETBASE/hour-$hsnaps] ; then rm -rf $TARGETBASE/hour-$hsnaps; fi
+	if [ -d $TARGETBASE/hour-$hsnaps ] ; then rm -rf $TARGETBASE/hour-$hsnaps; fi
 	for i in `seq 2 $hsnaps | tac`;do
 		(( next = i - 1 ))
 		mv $TARGETBASE/hour-$next $TARGETBASE/hour-$i
