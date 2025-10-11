@@ -1,6 +1,6 @@
 [project]
 name = "snapback"
-version = "2.0.0"
+version = "2.1.0"
 description = "Space-efficient snapshot-based backup system using rsync and hard links"
 readme = "README.md"
 requires-python = ">=3.10"
