@@ -49,3 +49,6 @@ Thumbs.db
 # Snapback specific
 .Snapshots/
 .snapshotrc
+
+# snapback - local snapshot backups
+.snapshots/

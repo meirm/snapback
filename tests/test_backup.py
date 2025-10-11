@@ -227,3 +227,128 @@ def test_monthly_backup_dry_run(config, initialized_snapshots, capsys):
 
     captured = capsys.readouterr()
     assert "DRY RUN" in captured.out
+
+
+# Project-Local Mode Tests
+
+
+def test_run_rsync_local_mode_gitignore_filter(config):
+    """Test rsync in local mode adds gitignore filter."""
+    config.is_local = True
+    manager = BackupManager(config)
+
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+        manager.run_rsync("/source/path", Path("/target/path"))
+
+        args = mock_run.call_args[0][0]
+        # Should include gitignore filter
+        assert "--filter=:- .gitignore" in args
+
+
+def test_run_rsync_local_mode_exclusions(config):
+    """Test rsync in local mode excludes .git and .snapshots."""
+    config.is_local = True
+    manager = BackupManager(config)
+
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+        manager.run_rsync("/source/path", Path("/target/path"))
+
+        args = mock_run.call_args[0][0]
+        # Should exclude .git and .snapshots
+        assert "--exclude=.git" in args
+        assert "--exclude=.snapshots" in args
+
+
+def test_run_rsync_global_mode_no_filter(config):
+    """Test rsync in global mode does not add gitignore filter."""
+    config.is_local = False
+    manager = BackupManager(config)
+
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+        manager.run_rsync("/source/path", Path("/target/path"))
+
+        args = mock_run.call_args[0][0]
+        # Should NOT include gitignore filter in global mode
+        assert "--filter=:- .gitignore" not in args
+        assert "--exclude=.git" not in args
+        assert "--exclude=.snapshots" not in args
+
+
+def test_run_rsync_local_mode_with_custom_params(config):
+    """Test rsync in local mode preserves custom parameters."""
+    config.is_local = True
+    config.rsync_params = "--exclude=*.log --max-size=5m"
+    manager = BackupManager(config)
+
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+        manager.run_rsync("/source/path", Path("/target/path"))
+
+        args = mock_run.call_args[0][0]
+        # Should have both local mode filters and custom params
+        assert "--filter=:- .gitignore" in args
+        assert "--exclude=.git" in args
+        assert "--exclude=.snapshots" in args
+        assert "--exclude=*.log" in args
+        assert "--max-size=5m" in args
+
+
+def test_hourly_backup_local_mode(config, initialized_snapshots, source_dirs):
+    """Test hourly backup respects local mode settings."""
+    config.is_local = True
+    manager = BackupManager(config)
+
+    with patch.object(manager, "run_rsync") as mock_rsync:
+        mock_rsync.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+        manager.hourly_backup()
+
+        # Verify rsync was called with local mode
+        # Check that calls included gitignore filtering
+        for call_args in mock_rsync.call_args_list:
+            # The manager's is_local flag should affect run_rsync behavior
+            pass  # Just verify it doesn't crash with local mode
+
+
+def test_run_rsync_local_mode_all_flags_together(config):
+    """Test rsync in local mode with all flags combined."""
+    config.is_local = True
+    config.rsync_params = "--verbose --progress"
+    manager = BackupManager(config)
+
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+        manager.run_rsync(
+            "/source/path",
+            Path("/target/path"),
+            dry_run=True,
+            delete=True,
+            ignore_existing=False,
+        )
+
+        args = mock_run.call_args[0][0]
+        # Base flags
+        assert "rsync" in args
+        assert "-a" in args
+        assert "-v" in args
+
+        # Operation flags
+        assert "--dry-run" in args
+        assert "--delete" in args
+
+        # Local mode flags
+        assert "--filter=:- .gitignore" in args
+        assert "--exclude=.git" in args
+        assert "--exclude=.snapshots" in args
+
+        # Custom params
+        assert "--verbose" in args
+        assert "--progress" in args

@@ -23,9 +23,16 @@ def test_load_config_missing_file():
         Config.load("/nonexistent/path/config.rc")
 
 
-def test_load_config_from_env(env_config_path, temp_dir):
+def test_load_config_from_env(temp_dir, monkeypatch):
     """Test loading configuration from environment variable."""
-    # Create config in env path
+    # Create separate work and config dirs
+    work_dir = temp_dir / "work"
+    work_dir.mkdir()
+
+    monkeypatch.chdir(work_dir)
+
+    # Create config in env path (not local)
+    env_config = temp_dir / "env.rc"
     source_dir = temp_dir / "source"
     source_dir.mkdir()
 
@@ -33,7 +40,10 @@ def test_load_config_from_env(env_config_path, temp_dir):
 DIRS="{source_dir}"
 TARGETBASE="{temp_dir / 'snapshots'}"
 """
-    env_config_path.write_text(config_content)
+    env_config.write_text(config_content)
+
+    # Set SNAPSHOTRC env var
+    monkeypatch.setenv("SNAPSHOTRC", str(env_config))
 
     # Load config (should use SNAPSHOTRC env var)
     config = Config.load()
@@ -194,3 +204,240 @@ RSYNC_PARAMS="--exclude=*.tmp --max-size=1.5m --verbose"
     assert "--exclude=*.tmp" in config.rsync_params
     assert "--max-size=1.5m" in config.rsync_params
     assert "--verbose" in config.rsync_params
+
+
+# Project-Local Mode Tests
+
+
+def test_config_local_priority(tmp_path, monkeypatch):
+    """Test that local .snapshotrc takes priority over global."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    # Create global config
+    global_config = tmp_path / ".snapshotrc"
+    global_config.write_text(
+        """
+DIRS="/global/path"
+TARGETBASE="/global/snapshots"
+"""
+    )
+
+    # Create local config in current directory
+    local_config = Path("./.snapshotrc")
+    local_config.write_text(
+        """
+DIRS="."
+TARGETBASE="./.snapshots"
+"""
+    )
+
+    # Load config without explicit path (should use local)
+    config = Config.load()
+
+    assert config.is_local is True
+    assert config.dirs == ["."]
+    assert config.target_base == "./.snapshots"
+
+
+def test_config_no_local_uses_global(tmp_path, monkeypatch):
+    """Test that global config is used when no local config exists."""
+    # Create separate directories for working dir and home
+    work_dir = tmp_path / "work"
+    home_dir = tmp_path / "home"
+    work_dir.mkdir()
+    home_dir.mkdir()
+
+    monkeypatch.chdir(work_dir)
+    monkeypatch.setenv("HOME", str(home_dir))
+
+    # Create global config in home (not local)
+    global_config = home_dir / ".snapshotrc"
+    global_config.write_text(
+        """
+DIRS="/global/path"
+TARGETBASE="/global/snapshots"
+"""
+    )
+
+    # Load config (should use global since no local exists in work_dir)
+    config = Config.load()
+
+    assert config.is_local is False
+    assert "/global/path" in config.dirs
+    assert "/global/snapshots" in config.target_base
+
+
+def test_config_local_allows_relative_paths(tmp_path, monkeypatch):
+    """Test that local mode allows relative paths."""
+    monkeypatch.chdir(tmp_path)
+
+    # Create local config with relative paths
+    local_config = tmp_path / ".snapshotrc"
+    local_config.write_text(
+        """
+DIRS="."
+TARGETBASE="./.snapshots"
+"""
+    )
+
+    # Should not raise validation error for relative paths
+    config = Config.from_file(str(local_config))
+
+    assert config.is_local is True
+    assert config.dirs == ["."]
+    assert config.target_base == "./.snapshots"
+
+
+def test_config_global_requires_absolute_paths(tmp_path, monkeypatch):
+    """Test that global mode requires absolute paths."""
+    # Create separate work and home dirs
+    work_dir = tmp_path / "work"
+    home_dir = tmp_path / "home"
+    work_dir.mkdir()
+    home_dir.mkdir()
+
+    monkeypatch.chdir(work_dir)
+    monkeypatch.setenv("HOME", str(home_dir))
+
+    # Create config with relative path in home (not local .snapshotrc)
+    config_path = home_dir / "config.rc"
+    config_path.write_text(
+        """
+DIRS="."
+TARGETBASE="./.snapshots"
+"""
+    )
+
+    # Should raise validation error for relative paths in global mode
+    with pytest.raises((ValueError, Exception), match="absolute path"):
+        Config.from_file(str(config_path))
+
+
+def test_config_is_local_property(tmp_path, monkeypatch):
+    """Test that is_local property is set correctly."""
+    monkeypatch.chdir(tmp_path)
+
+    # Local config
+    local_config = tmp_path / ".snapshotrc"
+    local_config.write_text(
+        """
+DIRS="."
+TARGETBASE="./.snapshots"
+"""
+    )
+
+    config = Config.from_file(str(local_config))
+    assert config.is_local is True
+
+    # Global config in different location
+    global_config = tmp_path / "global.rc"
+    source = tmp_path / "source"
+    source.mkdir()
+    global_config.write_text(
+        f"""
+DIRS="{source}"
+TARGETBASE="{tmp_path / 'snapshots'}"
+"""
+    )
+
+    config = Config.from_file(str(global_config))
+    assert config.is_local is False
+
+
+def test_config_path_property(tmp_path):
+    """Test that config_path property is set correctly."""
+    config_path = tmp_path / "config.rc"
+    source = tmp_path / "source"
+    source.mkdir()
+
+    config_path.write_text(
+        f"""
+DIRS="{source}"
+TARGETBASE="{tmp_path / 'snapshots'}"
+"""
+    )
+
+    config = Config.from_file(str(config_path))
+
+    assert config.config_path == str(config_path)
+
+
+def test_generate_sample_config_local():
+    """Test generating local config template."""
+    sample = Config.generate_sample_config(local=True)
+
+    assert "project-local configuration" in sample
+    assert "DIRS='.'" in sample
+    assert "TARGETBASE='./.snapshots'" in sample
+    assert ".gitignore" in sample
+    assert ".git" in sample
+
+
+def test_generate_sample_config_global():
+    """Test generating global config template."""
+    sample = Config.generate_sample_config(local=False)
+
+    assert "snapback configuration" in sample
+    assert "DIRS=" in sample
+    assert "TARGETBASE=" in sample
+    assert "Documents" in sample or "Projects" in sample
+    assert ".Snapshots" in sample
+
+
+def test_config_local_detection_by_path(tmp_path, monkeypatch):
+    """Test that local config is detected even when path is explicit."""
+    monkeypatch.chdir(tmp_path)
+
+    # Create local config
+    local_config = Path("./.snapshotrc")
+    local_config.write_text(
+        """
+DIRS="."
+TARGETBASE="./.snapshots"
+"""
+    )
+
+    # Load with explicit path to local config
+    config = Config.from_file(str(local_config.absolute()))
+
+    assert config.is_local is True
+
+
+def test_config_env_var_priority(tmp_path, monkeypatch):
+    """Test that SNAPSHOTRC env var is checked before default global."""
+    # Create separate work and home dirs
+    work_dir = tmp_path / "work"
+    home_dir = tmp_path / "home"
+    work_dir.mkdir()
+    home_dir.mkdir()
+
+    monkeypatch.chdir(work_dir)
+    monkeypatch.setenv("HOME", str(home_dir))
+
+    # Create custom config via env var
+    env_config = tmp_path / "custom.rc"
+    source = tmp_path / "source"
+    source.mkdir()
+    env_config.write_text(
+        f"""
+DIRS="{source}"
+TARGETBASE="{tmp_path / 'snapshots'}"
+"""
+    )
+    monkeypatch.setenv("SNAPSHOTRC", str(env_config))
+
+    # Create default global config in home (should be ignored)
+    global_config = home_dir / ".snapshotrc"
+    global_config.write_text(
+        """
+DIRS="/ignored"
+TARGETBASE="/ignored"
+"""
+    )
+
+    # Load config (should use SNAPSHOTRC env var, not local or global)
+    config = Config.load()
+
+    assert str(source) in config.dirs
+    assert "/ignored" not in config.dirs

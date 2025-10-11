@@ -358,7 +358,7 @@ podman run --rm \
   snapback:test \
   bash -c "
     /app/docker/generate-test-data.sh &&
-    time snapback --hourly
+    time snapback hourly
   "
 ```
 
@@ -369,7 +369,7 @@ podman run --rm \
   -v snapback-snapshots:/home/snapback/.Snapshots \
   snapback:test \
   bash -c "
-    snapback --hourly &&
+    snapback hourly &&
     echo 'Source size:' &&
     du -sh /home/snapback/test_data &&
     echo 'Snapshot size:' &&

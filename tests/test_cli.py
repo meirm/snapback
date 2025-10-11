@@ -29,40 +29,33 @@ def test_cmd_init(config_file, capsys):
     assert "Initializing" in captured.out
 
 
-def test_cmd_sampleconfig(temp_dir, monkeypatch, capsys):
-    """Test sampleconfig command."""
-    monkeypatch.setenv("HOME", str(temp_dir))
-
+def test_cmd_sampleconfig(capsys):
+    """Test sampleconfig command outputs to stdout."""
     args = MagicMock()
+    args.local = False
 
     result = cli.cmd_sampleconfig(args)
 
     assert result == 0
     captured = capsys.readouterr()
-    assert "Sample configuration written" in captured.out
-
-    # Check file was created
-    config_path = temp_dir / ".snapshotrc"
-    assert config_path.exists()
+    # Should output sample config to stdout
+    assert "DIRS=" in captured.out
+    assert "TARGETBASE=" in captured.out
 
 
-def test_cmd_sampleconfig_overwrite(temp_dir, monkeypatch, capsys):
-    """Test sampleconfig with existing file."""
-    monkeypatch.setenv("HOME", str(temp_dir))
-
-    # Create existing config
-    config_path = temp_dir / ".snapshotrc"
-    config_path.write_text("existing")
-
+def test_cmd_sampleconfig_local(capsys):
+    """Test sampleconfig command with --local flag."""
     args = MagicMock()
+    args.local = True
 
-    # Mock user input to decline overwrite
-    with patch("builtins.input", return_value="n"):
-        result = cli.cmd_sampleconfig(args)
+    result = cli.cmd_sampleconfig(args)
 
-    assert result == 1
+    assert result == 0
     captured = capsys.readouterr()
-    assert "Cancelled" in captured.out
+    # Should output local config template
+    assert "DIRS='.'" in captured.out
+    assert "TARGETBASE='./.snapshots'" in captured.out
+    assert "project-local configuration" in captured.out
 
 
 def test_cmd_hourly(config_file):
@@ -342,3 +335,215 @@ def test_cmd_hourly_error(config_file, capsys):
         assert result == 1
         captured = capsys.readouterr()
         assert "Error" in captured.err
+
+
+# Project-Local Mode Tests
+
+
+def test_is_git_repository_true(tmp_path, monkeypatch):
+    """Test detecting a git repository."""
+    monkeypatch.chdir(tmp_path)
+    git_dir = tmp_path / ".git"
+    git_dir.mkdir()
+
+    assert cli.is_git_repository() is True
+
+
+def test_is_git_repository_false(tmp_path, monkeypatch):
+    """Test detecting non-git directory."""
+    monkeypatch.chdir(tmp_path)
+
+    assert cli.is_git_repository() is False
+
+
+def test_cmd_init_local_explicit(tmp_path, monkeypatch, capsys):
+    """Test init command with explicit --local flag."""
+    monkeypatch.chdir(tmp_path)
+
+    args = MagicMock()
+    args.config = None
+    args.local = True
+    args.force_global = False
+
+    with patch("snapback.snapshot.SnapshotManager.init_snapshots"):
+        result = cli.cmd_init(args)
+
+    assert result == 0
+
+    # Should create local config
+    config_path = tmp_path / ".snapshotrc"
+    assert config_path.exists()
+
+    # Should update .gitignore
+    gitignore_path = tmp_path / ".gitignore"
+    assert gitignore_path.exists()
+
+    gitignore_content = gitignore_path.read_text()
+    assert ".snapshots/" in gitignore_content
+    assert ".snapshotrc" in gitignore_content
+
+    captured = capsys.readouterr()
+    assert "project-local" in captured.out.lower()
+
+
+def test_cmd_init_local_auto_detect(tmp_path, monkeypatch, capsys):
+    """Test init command auto-detects git repository."""
+    monkeypatch.chdir(tmp_path)
+
+    # Create .git directory to simulate git repo
+    git_dir = tmp_path / ".git"
+    git_dir.mkdir()
+
+    args = MagicMock()
+    args.config = None
+    args.local = False
+    args.force_global = False
+
+    with patch("snapback.snapshot.SnapshotManager.init_snapshots"):
+        result = cli.cmd_init(args)
+
+    assert result == 0
+
+    # Should auto-detect and create local config
+    config_path = tmp_path / ".snapshotrc"
+    assert config_path.exists()
+
+    captured = capsys.readouterr()
+    assert "Git repository detected" in captured.out
+    assert "project-local" in captured.out.lower()
+
+
+def test_cmd_init_global_force(tmp_path, monkeypatch, capsys):
+    """Test init command with --global flag overrides auto-detection."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    # Create .git directory (would normally trigger local mode)
+    git_dir = tmp_path / ".git"
+    git_dir.mkdir()
+
+    # Create global config
+    global_config = tmp_path / ".snapshotrc"
+    global_config.write_text("DIRS='/tmp'\nTARGETBASE='/tmp/.Snapshots'\n")
+
+    args = MagicMock()
+    args.config = str(global_config)
+    args.local = False
+    args.force_global = True
+
+    with patch("snapback.snapshot.SnapshotManager.init_snapshots"):
+        result = cli.cmd_init(args)
+
+    assert result == 0
+
+    # Should NOT create local config
+    local_config = tmp_path / ".snapshotrc"
+    # Should use the existing global config instead
+
+
+def test_cmd_init_local_existing_config(tmp_path, monkeypatch, capsys):
+    """Test init with existing local config doesn't overwrite."""
+    monkeypatch.chdir(tmp_path)
+
+    # Create existing local config
+    config_path = tmp_path / ".snapshotrc"
+    original_content = "# My custom config\nDIRS='.'\nTARGETBASE='./.snapshots'\n"
+    config_path.write_text(original_content)
+
+    args = MagicMock()
+    args.config = None
+    args.local = True
+    args.force_global = False
+
+    with patch("snapback.snapshot.SnapshotManager.init_snapshots"):
+        result = cli.cmd_init(args)
+
+    assert result == 0
+
+    # Config should not be overwritten
+    assert config_path.read_text() == original_content
+
+    captured = capsys.readouterr()
+    assert "already exists" in captured.out
+
+
+def test_cmd_init_local_gitignore_already_has_entries(tmp_path, monkeypatch, capsys):
+    """Test init with .gitignore already containing snapback entries."""
+    monkeypatch.chdir(tmp_path)
+
+    # Create .gitignore with snapback entries
+    gitignore_path = tmp_path / ".gitignore"
+    gitignore_path.write_text(
+        """# Python
+__pycache__/
+*.pyc
+
+# snapback
+.snapshots/
+.snapshotrc
+"""
+    )
+
+    args = MagicMock()
+    args.config = None
+    args.local = True
+    args.force_global = False
+
+    # Mock the Config and SnapshotManager to avoid filesystem operations
+    with patch("snapback.cli.Config") as mock_config_class:
+        mock_config = MagicMock()
+        mock_config.target_base = "./.snapshots"
+        mock_config_class.generate_sample_config.return_value = (
+            "DIRS='.'\nTARGETBASE='./.snapshots'\n"
+        )
+        mock_config_class.load.return_value = mock_config
+
+        with patch("snapback.snapshot.SnapshotManager.init_snapshots"):
+            result = cli.cmd_init(args)
+
+    assert result == 0
+
+    # .gitignore should not be duplicated
+    gitignore_content = gitignore_path.read_text()
+    assert gitignore_content.count(".snapshots/") == 1
+    assert gitignore_content.count(".snapshotrc") == 1
+
+    captured = capsys.readouterr()
+    assert "already contains" in captured.out
+
+
+def test_cmd_init_local_updates_gitignore_preserves_content(tmp_path, monkeypatch):
+    """Test init updates .gitignore while preserving existing content."""
+    monkeypatch.chdir(tmp_path)
+
+    # Create existing .gitignore without snapback entries
+    gitignore_path = tmp_path / ".gitignore"
+    original_content = """# Python
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+venv/
+"""
+    gitignore_path.write_text(original_content)
+
+    args = MagicMock()
+    args.config = None
+    args.local = True
+    args.force_global = False
+
+    with patch("snapback.snapshot.SnapshotManager.init_snapshots"):
+        result = cli.cmd_init(args)
+
+    assert result == 0
+
+    # Original content should be preserved
+    gitignore_content = gitignore_path.read_text()
+    assert "__pycache__/" in gitignore_content
+    assert "*.py[cod]" in gitignore_content
+    assert "venv/" in gitignore_content
+
+    # New entries should be added
+    assert ".snapshots/" in gitignore_content
+    assert ".snapshotrc" in gitignore_content
+    assert "# snapback" in gitignore_content

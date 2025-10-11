@@ -10,6 +10,7 @@ from pathlib import Path
 from .backup import BackupManager
 from .config import Config
 from .diff import DiffManager
+from .gitignore import ensure_gitignore_entries
 from .recovery import RecoveryManager
 from .snapshot import SnapshotManager
 from .utils import (
@@ -48,15 +49,31 @@ def create_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
 
     # init command
-    subparsers.add_parser(
+    parser_init = subparsers.add_parser(
         "init",
         help="Initialize snapshot directory structure",
     )
+    parser_init.add_argument(
+        "--local",
+        action="store_true",
+        help="Create project-local configuration (./. snapshotrc and ./.snapshots)",
+    )
+    parser_init.add_argument(
+        "--global",
+        dest="force_global",
+        action="store_true",
+        help="Force global configuration even in git repository",
+    )
 
     # sampleconfig command
-    subparsers.add_parser(
+    parser_sampleconfig = subparsers.add_parser(
         "sampleconfig",
         help="Generate a sample configuration file",
+    )
+    parser_sampleconfig.add_argument(
+        "--local",
+        action="store_true",
+        help="Generate project-local configuration template",
     )
 
     # hourly command
@@ -196,8 +213,22 @@ def load_config(config_path: str = None) -> Config:
         sys.exit(1)
 
 
+def is_git_repository() -> bool:
+    """Check if current directory is a git repository.
+
+    Returns:
+        True if .git directory exists
+    """
+    return (Path(".") / ".git").exists()
+
+
 def cmd_init(args: argparse.Namespace) -> int:
     """Initialize snapshot directory structure.
+
+    Supports both global mode (~/. snapshotrc + ~/.Snapshots) and
+    project-local mode (./. snapshotrc + ./.snapshots).
+
+    Auto-detects git repositories and defaults to local mode unless --global is specified.
 
     Args:
         args: Parsed command-line arguments
@@ -205,12 +236,83 @@ def cmd_init(args: argparse.Namespace) -> int:
     Returns:
         Exit code (0 for success)
     """
-    config = load_config(args.config)
-    snapshot_manager = SnapshotManager(config)
+    # Determine if we should use local or global mode
+    use_local = False
 
-    print(f"Initializing snapshot directory structure in {config.target_base}")
-    snapshot_manager.init_snapshots()
-    print("Initialization complete")
+    if args.local:
+        # Explicit --local flag
+        use_local = True
+    elif hasattr(args, 'force_global') and args.force_global:
+        # Explicit --global flag
+        use_local = False
+    elif is_git_repository():
+        # Auto-detect: in git repo, default to local mode
+        use_local = True
+        print("Git repository detected - using project-local mode")
+        print("(Use --global to force global mode)")
+        print()
+
+    if use_local:
+        # Project-local mode
+        config_path = Path("./.snapshotrc")
+        snapshots_dir = Path("./.snapshots")
+        gitignore_path = Path("./.gitignore")
+
+        # Create local config if it doesn't exist
+        if not config_path.exists():
+            print("Creating project-local configuration...")
+            config_content = Config.generate_sample_config(local=True)
+            config_path.write_text(config_content)
+            print(f"✓ Created {config_path}")
+        else:
+            print(f"Configuration already exists: {config_path}")
+
+        # Update .gitignore
+        print("Updating .gitignore...")
+        entries_to_add = [".snapshots/", ".snapshotrc"]
+        added = ensure_gitignore_entries(gitignore_path, entries_to_add)
+
+        if added:
+            print(f"✓ Added {', '.join(entries_to_add)} to .gitignore")
+        else:
+            print("✓ .gitignore already contains snapback entries")
+
+        # Load config and initialize snapshots
+        try:
+            config = Config.load(str(config_path))
+        except Exception as e:
+            print(f"Error loading configuration: {e}", file=sys.stderr)
+            return 1
+
+        snapshot_manager = SnapshotManager(config)
+        print(f"\nInitializing snapshot directory: {config.target_base}")
+        snapshot_manager.init_snapshots()
+
+        print("\n✓ Project-local snapback initialized successfully!")
+        print("\nNext steps:")
+        print(f"  1. Review configuration in {config_path}")
+        print("  2. Create your first snapshot: snapback hourly")
+        print("  3. Tag important states: snapback tag hour-0 'description'")
+
+    else:
+        # Global mode (backward compatible)
+        config_path = Path.home() / ".snapshotrc"
+
+        if not config_path.exists():
+            print(f"Configuration file not found: {config_path}")
+            print("\nRun 'snapback sampleconfig' to create a sample configuration")
+            return 1
+
+        try:
+            config = load_config(args.config)
+        except SystemExit:
+            return 1
+
+        snapshot_manager = SnapshotManager(config)
+
+        print(f"Initializing snapshot directory structure in {config.target_base}")
+        snapshot_manager.init_snapshots()
+        print("Initialization complete")
 
     return 0
 
@@ -224,34 +326,14 @@ def cmd_sampleconfig(args: argparse.Namespace) -> int:
     Returns:
         Exit code (0 for success)
     """
-    # Default to ~/.snapshotrc
-    config_path = Path.home() / ".snapshotrc"
+    # Check if --local flag is set
+    use_local = hasattr(args, 'local') and args.local
 
-    if config_path.exists():
-        response = input(f"{config_path} already exists. Overwrite? [y/N] ")
-        if response.lower() != "y":
-            print("Cancelled")
-            return 1
+    # Generate appropriate config
+    sample_config = Config.generate_sample_config(local=use_local)
 
-    sample_config = """# snapback configuration file
-# This file should be saved as ~/.snapshotrc
-
-# Directories to backup (space-separated)
-DIRS="$HOME/Documents $HOME/Projects"
-
-# Base directory for snapshots (default: ~/.Snapshots)
-TARGETBASE="$HOME/.Snapshots"
-
-# Optional rsync parameters (e.g., --max-size=1.5m to exclude large files)
-RSYNC_PARAMS=""
-"""
-
-    config_path.write_text(sample_config)
-    print(f"Sample configuration written to {config_path}")
-    print("\nPlease edit this file to customize your backup settings:")
-    print(f"  - Set DIRS to the directories you want to backup")
-    print(f"  - Set TARGETBASE to where you want snapshots stored")
-    print(f"  - Optionally set RSYNC_PARAMS for additional rsync options")
+    # Just print to stdout (user can redirect to file)
+    print(sample_config)
 
     return 0
 

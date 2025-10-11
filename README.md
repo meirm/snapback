@@ -15,6 +15,7 @@
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
+- [Project-Local Snapshots](#project-local-snapshots)
 - [Configuration](#configuration)
 - [Usage](#usage)
   - [Setup Commands](#setup-commands)
@@ -163,6 +164,128 @@ ls -la ~/.Snapshots/hour-0/
 ```
 
 Your first snapshot is ready! See [Automated Backups with Cron](#automated-backups-with-cron) to set up automatic backups.
+
+## Project-Local Snapshots
+
+snapback supports **project-local mode** for agentic software development workflows. In this mode, snapshots are stored locally within your project directory rather than globally, making them perfect for AI agents, coding sessions, and version control checkpoints.
+
+### Benefits for Agentic Development
+
+- **Session Checkpoints**: Create snapshots at key points during AI-assisted development
+- **Quick Rollbacks**: Instantly revert to previous states during experimentation
+- **Git-Friendly**: `.snapshots/` and `.snapshotrc` auto-added to `.gitignore`
+- **Workspace Isolation**: Each project has its own snapshot history
+- **Respects .gitignore**: Automatically excludes files based on `.gitignore` patterns
+
+### Quick Setup for Project-Local Mode
+
+```bash
+# Navigate to your project
+cd /path/to/your/project
+
+# Initialize project-local snapback (auto-detects git repositories)
+snapback init
+
+# Or explicitly use local mode
+snapback init --local
+
+# Create snapshots during development
+snapback hourly  # Creates a checkpoint
+
+# Tag important states
+snapback tag hour-0 "before-refactor"
+snapback tag hour-0 "working-feature-x"
+
+# Roll back if needed
+snapback recover hour-2  # Revert to 2 hours ago
+```
+
+### How It Works
+
+When you run `snapback init` in a git repository:
+
+1. Creates `./.snapshotrc` with local configuration
+2. Creates `./.snapshots/` directory for local snapshots
+3. Automatically updates `.gitignore` to exclude both files
+4. Respects your existing `.gitignore` patterns during backups
+5. Excludes `.git/` and `.snapshots/` by default
+
+### Configuration Priority
+
+snapback checks for configuration in this order:
+
+1. **Local** `./.snapshotrc` (current directory) - highest priority
+2. Explicit `--config` flag or `$SNAPSHOTRC` environment variable
+3. **Global** `~/.snapshotrc` (home directory) - lowest priority
+
+### Project-Local Configuration Example
+
+```bash
+# ./.snapshotrc (automatically created by snapback init --local)
+# Project-local configuration
+DIRS='.'
+TARGETBASE='./.snapshots'
+RSYNC_PARAMS=''
+```
+
+The configuration uses relative paths (`.` for current directory) which are only allowed in project-local mode.
+
+### Global vs. Local Mode
+
+**Global Mode** (traditional):
+- Config: `~/.snapshotrc`
+- Snapshots: `~/.Snapshots/`
+- Use case: System-wide backups, home directory protection
+- Requires absolute paths
+
+**Local Mode** (project-specific):
+- Config: `./.snapshotrc`
+- Snapshots: `./.snapshots/`
+- Use case: Development projects, AI agent checkpoints, experimentation
+- Allows relative paths
+
+### Force Global Mode
+
+If you're in a git repository but want global mode:
+
+```bash
+snapback init --global
+```
+
+This bypasses the auto-detection and uses your global `~/.snapshotrc` configuration.
+
+### Example Agentic Workflow
+
+```bash
+# 1. Start development session
+cd ~/projects/my-app
+snapback init
+
+# 2. Create initial checkpoint
+snapback hourly
+snapback tag hour-0 "clean-state"
+
+# 3. AI agent makes changes
+# ... AI generates code ...
+
+# 4. Create checkpoint after AI changes
+snapback hourly
+snapback tag hour-0 "ai-generated-feature"
+
+# 5. Test the changes
+npm test
+
+# 6. If tests fail, revert
+snapback recover ai-generated-feature  # or hour-1
+
+# 7. If tests pass, commit to git
+git add .
+git commit -m "Add AI-generated feature"
+
+# 8. Continue development...
+```
+
+See **[docs/agentic-development.md](docs/agentic-development.md)** for comprehensive guide on using snapback with AI agents and development workflows.
 
 ## Configuration
 

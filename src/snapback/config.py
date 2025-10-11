@@ -30,6 +30,8 @@ class Config:
         dsnaps: int = 7,
         wsnaps: int = 4,
         msnaps: int = 12,
+        config_path: Optional[str] = None,
+        is_local: bool = False,
     ):
         """
         Initialize configuration.
@@ -42,6 +44,8 @@ class Config:
             dsnaps: Number of daily snapshots (default: 7)
             wsnaps: Number of weekly snapshots (default: 4)
             msnaps: Number of monthly snapshots (default: 12)
+            config_path: Path to the config file that was loaded
+            is_local: True if using project-local mode (./. snapshotrc)
         """
         self.dirs = [os.path.expanduser(d) for d in dirs]
         self.target_base = os.path.expanduser(targetbase)  # Use target_base for consistency
@@ -50,6 +54,8 @@ class Config:
         self.dsnaps = dsnaps
         self.wsnaps = wsnaps
         self.msnaps = msnaps
+        self.config_path = config_path
+        self.is_local = is_local
 
         self._validate()
 
@@ -60,12 +66,14 @@ class Config:
         if not self.target_base:
             raise ConfigError("TARGETBASE is required and cannot be empty")
 
-        for d in self.dirs:
-            if not os.path.isabs(d):
-                raise ConfigError(f"Directory must be absolute path: {d}")
+        # In local mode, allow relative paths (like '.' for current directory)
+        if not self.is_local:
+            for d in self.dirs:
+                if not os.path.isabs(d):
+                    raise ConfigError(f"Directory must be absolute path: {d}")
 
-        if not os.path.isabs(self.target_base):
-            raise ConfigError(f"TARGETBASE must be absolute path: {self.target_base}")
+            if not os.path.isabs(self.target_base):
+                raise ConfigError(f"TARGETBASE must be absolute path: {self.target_base}")
 
     @classmethod
     def load(cls, config_path: Optional[str] = None) -> "Config":
@@ -97,9 +105,14 @@ class Config:
         """
         Load configuration from file.
 
+        Priority order:
+        1. Local ./.snapshotrc (if exists)
+        2. Explicit config_path parameter
+        3. SNAPSHOTRC environment variable
+        4. Global ~/.snapshotrc
+
         Args:
-            config_path: Path to config file. If None, uses SNAPSHOTRC env var
-                        or ~/.snapshotrc
+            config_path: Path to config file. If None, checks local then global
 
         Returns:
             Config instance
@@ -107,10 +120,23 @@ class Config:
         Raises:
             ConfigError: If config file not found or invalid
         """
-        if config_path is None:
+        # Priority 1: Check for local .snapshotrc first (project-local mode)
+        local_config = Path("./.snapshotrc")
+        is_local = False
+
+        if config_path is None and local_config.exists():
+            config_path = str(local_config.absolute())
+            is_local = True
+        # Priority 2-4: Use explicit path, env var, or global
+        elif config_path is None:
             config_path = os.environ.get("SNAPSHOTRC", os.path.expanduser("~/.snapshotrc"))
 
         config_path = os.path.expanduser(config_path)
+
+        # Check if the resolved path is the local config
+        if not is_local and Path(config_path).absolute() == local_config.absolute():
+            is_local = True
+
         if not os.path.exists(config_path):
             raise ConfigError(
                 f"Configuration file not found: {config_path}\n"
@@ -147,6 +173,8 @@ class Config:
             dsnaps=dsnaps,
             wsnaps=wsnaps,
             msnaps=msnaps,
+            config_path=config_path,
+            is_local=is_local,
         )
 
     @staticmethod
@@ -192,15 +220,41 @@ class Config:
         return config
 
     @staticmethod
-    def generate_sample_config() -> str:
+    def generate_sample_config(local: bool = False) -> str:
         """
         Generate a sample configuration file content.
+
+        Args:
+            local: If True, generate project-local config. If False, global config.
 
         Returns:
             Sample configuration as string
         """
-        home = os.path.expanduser("~")
-        return f"""# snapback configuration file
+        if local:
+            # Project-local configuration (for agentic development)
+            return """# snapback project-local configuration
+#
+# This config backs up the current project directory.
+# The .gitignore file will be respected automatically.
+
+# Directory to backup (. = current directory)
+DIRS='.'
+
+# Base directory for snapshots (local to project)
+TARGETBASE='./.snapshots'
+
+# Optional: Additional rsync parameters
+# Note: .git/ and .snapshots/ are automatically excluded
+# Examples:
+#   --max-size=10m         # Skip files larger than 10MB
+#   --exclude=*.pyc        # Exclude Python bytecode
+#   --exclude=build/       # Exclude build directories
+RSYNC_PARAMS=''
+"""
+        else:
+            # Global configuration (traditional mode)
+            home = os.path.expanduser("~")
+            return f"""# snapback configuration file
 #
 # Space-separated list of directories to backup
 # For paths with spaces, use nested quotes:  DIRS='{home}/Documents "{home}/My Files"'
