@@ -441,3 +441,79 @@ TARGETBASE="/ignored"
 
     assert str(source) in config.dirs
     assert "/ignored" not in config.dirs
+
+
+# Security Validation Tests
+
+
+def test_config_local_rejects_parent_directory(tmp_path, monkeypatch):
+    """Test that local mode rejects TARGETBASE with parent directory (..)."""
+    monkeypatch.chdir(tmp_path)
+
+    config_file = tmp_path / ".snapshotrc"
+    config_file.write_text("DIRS='.'\nTARGETBASE='../outside'")
+
+    with pytest.raises((ValueError, Exception), match="(?i)(parent|\\.\\.| dangerous)"):
+        Config.from_file(str(config_file))
+
+
+def test_config_local_rejects_absolute_outside_workspace(tmp_path, monkeypatch):
+    """Test that local mode rejects absolute TARGETBASE outside workspace."""
+    workspace = tmp_path / "project"
+    workspace.mkdir()
+
+    config_file = workspace / ".snapshotrc"
+    outside_dir = tmp_path / "outside"
+
+    config_file.write_text(f"DIRS='.'\nTARGETBASE='{outside_dir}'")
+
+    monkeypatch.chdir(workspace)
+
+    with pytest.raises((ValueError, Exception), match="(?i)(workspace|absolute|dangerous)"):
+        Config.from_file(str(config_file))
+
+
+def test_config_rejects_system_root(tmp_path, monkeypatch):
+    """Test that TARGETBASE='/' raises ConfigError."""
+    monkeypatch.chdir(tmp_path)
+
+    config_file = tmp_path / ".snapshotrc"
+    config_file.write_text("DIRS='.'\nTARGETBASE='/'")
+
+    with pytest.raises((ValueError, Exception), match="(?i)system directory"):
+        Config.from_file(str(config_file))
+
+
+def test_config_rejects_system_home(tmp_path, monkeypatch):
+    """Test that TARGETBASE='/home' raises ConfigError."""
+    monkeypatch.chdir(tmp_path)
+
+    config_file = tmp_path / ".snapshotrc"
+    config_file.write_text("DIRS='.'\nTARGETBASE='/home'")
+
+    with pytest.raises((ValueError, Exception), match="(?i)system directory"):
+        Config.from_file(str(config_file))
+
+
+def test_config_rejects_system_usr(tmp_path, monkeypatch):
+    """Test that TARGETBASE='/usr' raises ConfigError."""
+    monkeypatch.chdir(tmp_path)
+
+    config_file = tmp_path / ".snapshotrc"
+    config_file.write_text("DIRS='.'\nTARGETBASE='/usr'")
+
+    with pytest.raises((ValueError, Exception), match="(?i)system directory"):
+        Config.from_file(str(config_file))
+
+
+def test_config_local_accepts_safe_relative_path(tmp_path, monkeypatch):
+    """Test that local mode accepts safe relative paths like './.snapshots'."""
+    monkeypatch.chdir(tmp_path)
+
+    config_file = tmp_path / ".snapshotrc"
+    config_file.write_text("DIRS='.'\nTARGETBASE='./.snapshots'")
+
+    # Should not raise
+    config = Config.from_file(str(config_file))
+    assert config.is_local
+    assert config.target_base == "./.snapshots"

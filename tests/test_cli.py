@@ -415,16 +415,22 @@ def test_cmd_init_local_auto_detect(tmp_path, monkeypatch, capsys):
 
 def test_cmd_init_global_force(tmp_path, monkeypatch, capsys):
     """Test init command with --global flag overrides auto-detection."""
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("HOME", str(tmp_path))
+    # Create separate workspace and home directories
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    home = tmp_path / "home"
+    home.mkdir()
 
-    # Create .git directory (would normally trigger local mode)
-    git_dir = tmp_path / ".git"
+    monkeypatch.chdir(workspace)
+    monkeypatch.setenv("HOME", str(home))
+
+    # Create .git directory in workspace (would normally trigger local mode)
+    git_dir = workspace / ".git"
     git_dir.mkdir()
 
-    # Create global config
-    global_config = tmp_path / ".snapshotrc"
-    global_config.write_text("DIRS='/tmp'\nTARGETBASE='/tmp/.Snapshots'\n")
+    # Create global config in home directory (not in workspace)
+    global_config = home / ".snapshotrc"
+    global_config.write_text(f"DIRS='{home}/Documents'\nTARGETBASE='{home}/.Snapshots'\n")
 
     args = MagicMock()
     args.config = str(global_config)
@@ -436,8 +442,9 @@ def test_cmd_init_global_force(tmp_path, monkeypatch, capsys):
 
     assert result == 0
 
-    # Should NOT create local config
-    local_config = tmp_path / ".snapshotrc"
+    # Should NOT create local config in workspace
+    local_config = workspace / ".snapshotrc"
+    assert not local_config.exists()
     # Should use the existing global config instead
 
 

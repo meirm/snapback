@@ -9,6 +9,7 @@ from typing import Optional
 
 from .config import Config
 from .snapshot import SnapshotManager
+from .utils import validate_workspace_path
 
 
 class BackupManager:
@@ -23,6 +24,17 @@ class BackupManager:
         self.config = config
         self.snapshot_manager = SnapshotManager(config)
         self.base_dir = Path(config.target_base)
+
+    @property
+    def workspace_root(self) -> Optional[Path]:
+        """Get workspace root in local mode.
+
+        Returns:
+            Workspace root path if in local mode, None otherwise
+        """
+        if self.config.is_local and self.config.config_path:
+            return Path(self.config.config_path).parent.resolve()
+        return None
 
     def run_rsync(
         self,
@@ -53,6 +65,12 @@ class BackupManager:
             "-a",  # archive mode (preserves permissions, timestamps, etc.)
             "-v",  # verbose
         ]
+
+        # Validate source and target are within workspace in local mode
+        # Only validate if we have a valid workspace_root (config has config_path set)
+        if self.workspace_root and self.config.config_path:
+            validate_workspace_path(Path(source), self.workspace_root, "backup source")
+            validate_workspace_path(target, self.workspace_root, "backup target")
 
         # Add optional flags
         if dry_run:
@@ -133,6 +151,15 @@ class BackupManager:
             if not source_path.exists():
                 print(f"Warning: Source directory does not exist: {source_dir}")
                 continue
+
+            # Validate source directory is within workspace in local mode
+            # Only validate if we have a valid workspace_root (config has config_path set)
+            if self.workspace_root and self.config.config_path:
+                try:
+                    validate_workspace_path(source_path, self.workspace_root, "backup source directory")
+                except ValueError as e:
+                    print(f"Error: {e}")
+                    continue
 
             # Create target subdirectory in hour-0
             # Use the directory name as the target subdirectory

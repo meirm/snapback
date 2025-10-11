@@ -235,6 +235,7 @@ def test_monthly_backup_dry_run(config, initialized_snapshots, capsys):
 def test_run_rsync_local_mode_gitignore_filter(config):
     """Test rsync in local mode adds gitignore filter."""
     config.is_local = True
+    config.config_path = None  # Prevent workspace validation in tests
     manager = BackupManager(config)
 
     with patch("subprocess.run") as mock_run:
@@ -250,6 +251,7 @@ def test_run_rsync_local_mode_gitignore_filter(config):
 def test_run_rsync_local_mode_exclusions(config):
     """Test rsync in local mode excludes .git and .snapshots."""
     config.is_local = True
+    config.config_path = None  # Prevent workspace validation in tests
     manager = BackupManager(config)
 
     with patch("subprocess.run") as mock_run:
@@ -283,6 +285,7 @@ def test_run_rsync_global_mode_no_filter(config):
 def test_run_rsync_local_mode_with_custom_params(config):
     """Test rsync in local mode preserves custom parameters."""
     config.is_local = True
+    config.config_path = None  # Prevent workspace validation in tests
     config.rsync_params = "--exclude=*.log --max-size=5m"
     manager = BackupManager(config)
 
@@ -320,6 +323,7 @@ def test_hourly_backup_local_mode(config, initialized_snapshots, source_dirs):
 def test_run_rsync_local_mode_all_flags_together(config):
     """Test rsync in local mode with all flags combined."""
     config.is_local = True
+    config.config_path = None  # Prevent workspace validation in tests
     config.rsync_params = "--verbose --progress"
     manager = BackupManager(config)
 

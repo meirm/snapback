@@ -10,6 +10,7 @@ from typing import Optional
 
 from .config import Config
 from .snapshot import SnapshotManager
+from .utils import safe_rmtree, validate_workspace_path
 
 
 class RecoveryManager:
@@ -24,6 +25,17 @@ class RecoveryManager:
         self.config = config
         self.snapshot_manager = SnapshotManager(config)
         self.base_dir = Path(config.target_base)
+
+    @property
+    def workspace_root(self) -> Optional[Path]:
+        """Get workspace root in local mode.
+
+        Returns:
+            Workspace root path if in local mode, None otherwise
+        """
+        if self.config.is_local and self.config.config_path:
+            return Path(self.config.config_path).parent.resolve()
+        return None
 
     def recover(self, snapshot_name: str, dry_run: bool = False) -> None:
         """Perform a full recovery from a snapshot.
@@ -42,6 +54,11 @@ class RecoveryManager:
 
         if not snapshot_path.exists():
             raise FileNotFoundError(f"Snapshot does not exist: {snapshot_name}")
+
+        # Validate snapshot path is within workspace in local mode
+        # Only validate if we have a valid workspace_root (config has config_path set)
+        if self.workspace_root and self.config.config_path:
+            validate_workspace_path(snapshot_path, self.workspace_root, "recover")
 
         if dry_run:
             print(f"DRY RUN: Would recover from {snapshot_path}")
@@ -95,6 +112,11 @@ class RecoveryManager:
 
         if not snapshot_path.exists():
             raise FileNotFoundError(f"Snapshot does not exist: {snapshot_name}")
+
+        # Validate snapshot path is within workspace in local mode
+        # Only validate if we have a valid workspace_root (config has config_path set)
+        if self.workspace_root and self.config.config_path:
+            validate_workspace_path(snapshot_path, self.workspace_root, "undel")
 
         if dry_run:
             print(f"DRY RUN: Would undelete from {snapshot_path}")
@@ -208,9 +230,14 @@ class RecoveryManager:
                 print(f"DRY RUN: Would delete {hour_0_path}")
                 continue
 
+            # Validate path is within workspace in local mode
+            # Only validate if we have a valid workspace_root (config has config_path set)
+            if self.workspace_root and self.config.config_path:
+                validate_workspace_path(hour_0_path, self.workspace_root, "delete")
+
             # Delete the path
             if hour_0_path.is_dir():
-                shutil.rmtree(hour_0_path)
+                safe_rmtree(hour_0_path, self.workspace_root)
             else:
                 hour_0_path.unlink()
 
@@ -272,5 +299,10 @@ class RecoveryManager:
             print(f"DRY RUN: Would delete tag {tag_name}")
             return
 
-        shutil.rmtree(tag_path)
+        # Validate tag path is within workspace in local mode
+        # Only validate if we have a valid workspace_root (config has config_path set)
+        if self.workspace_root and self.config.config_path:
+            validate_workspace_path(tag_path, self.workspace_root, "delete tag")
+
+        safe_rmtree(tag_path, self.workspace_root)
         print(f"Deleted tag: {tag_name}")

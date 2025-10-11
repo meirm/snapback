@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Optional
 
 from .config import Config
+from .utils import safe_rmtree
 
 
 class SnapshotManager:
@@ -24,6 +25,17 @@ class SnapshotManager:
         """
         self.config = config
         self.base_dir = Path(config.target_base)
+
+    @property
+    def workspace_root(self) -> Optional[Path]:
+        """Get workspace root in local mode.
+
+        Returns:
+            Workspace root path if in local mode, None otherwise
+        """
+        if self.config.is_local and self.config.config_path:
+            return Path(self.config.config_path).parent.resolve()
+        return None
 
     def init_snapshots(self) -> None:
         """Initialize the complete snapshot directory structure.
@@ -69,8 +81,8 @@ class SnapshotManager:
         # Create destination directory
         dst.mkdir(parents=True, exist_ok=True)
 
-        # Walk through source directory
-        for root, dirs, files in os.walk(src):
+        # Walk through source directory without following symlinks
+        for root, dirs, files in os.walk(src, followlinks=False):
             src_root = Path(root)
             rel_path = src_root.relative_to(src)
             dst_root = dst / rel_path
@@ -114,7 +126,7 @@ class SnapshotManager:
         # Delete oldest snapshot (hour-23)
         hour_23 = self.base_dir / "hour-23"
         if hour_23.exists():
-            shutil.rmtree(hour_23)
+            safe_rmtree(hour_23, self.workspace_root)
 
         # Rotate snapshots (in reverse order to avoid overwriting)
         for i in range(22, -1, -1):
@@ -147,7 +159,7 @@ class SnapshotManager:
             # Create week-0 from day-7
             day_7.rename(self.base_dir / "week-0")
         elif day_7.exists():
-            shutil.rmtree(day_7)
+            safe_rmtree(day_7, self.workspace_root)
 
         # Rotate daily snapshots (in reverse order)
         for i in range(6, -1, -1):
@@ -185,7 +197,7 @@ class SnapshotManager:
             # Create month-0 from week-4
             week_4.rename(self.base_dir / "month-0")
         elif week_4.exists():
-            shutil.rmtree(week_4)
+            safe_rmtree(week_4, self.workspace_root)
 
         # Rotate weekly snapshots (in reverse order)
         for i in range(3, -1, -1):
@@ -201,7 +213,7 @@ class SnapshotManager:
             # This preserves day-7 for the daily rotation
             week_0 = self.base_dir / "week-0"
             if week_0.exists():
-                shutil.rmtree(week_0)
+                safe_rmtree(week_0, self.workspace_root)
             self.create_hard_link_copy(day_7, week_0)
 
     def rotate_monthly(self, dry_run: bool = False) -> None:
@@ -224,7 +236,7 @@ class SnapshotManager:
         # Delete oldest snapshot (month-12)
         month_12 = self.base_dir / "month-12"
         if month_12.exists():
-            shutil.rmtree(month_12)
+            safe_rmtree(month_12, self.workspace_root)
 
         # Rotate monthly snapshots (in reverse order)
         for i in range(11, -1, -1):

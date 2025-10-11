@@ -6,6 +6,8 @@ import shlex
 from pathlib import Path
 from typing import List, Optional
 
+from .utils import is_dangerous_targetbase, is_safe_workspace_path, validate_workspace_path
+
 
 class ConfigError(Exception):
     """Raised when configuration is invalid or missing."""
@@ -66,14 +68,69 @@ class Config:
         if not self.target_base:
             raise ConfigError("TARGETBASE is required and cannot be empty")
 
-        # In local mode, allow relative paths (like '.' for current directory)
-        if not self.is_local:
+        # Check for dangerous TARGETBASE in any mode (system directories)
+        is_dangerous, reason = is_dangerous_targetbase(self.target_base, is_local=False)
+        if is_dangerous and "system directory" in reason:
+            raise ConfigError(
+                f"TARGETBASE cannot be a system directory: {reason}\n"
+                f"Please choose a safe location like '~/.Snapshots' or './.snapshots'"
+            )
+
+        # Check if TARGETBASE is home directory root
+        if is_dangerous and "home directory root" in reason:
+            raise ConfigError(
+                f"Invalid TARGETBASE: {reason}\n"
+                f"For global mode, use '~/.Snapshots' or another subdirectory"
+            )
+
+        # In local mode, perform additional security checks
+        if self.is_local:
+            # Get workspace root from config path
+            if self.config_path:
+                workspace_root = Path(self.config_path).parent.resolve()
+
+                # Check for dangerous paths in local mode
+                is_dangerous_local, reason_local = is_dangerous_targetbase(self.target_base, is_local=True)
+                if is_dangerous_local:
+                    raise ConfigError(
+                        f"Dangerous TARGETBASE in local mode: {reason_local}\n"
+                        f"For project-local snapshots, use './.snapshots' within the project directory"
+                    )
+
+                # Validate TARGETBASE is within workspace
+                target_path = Path(self.target_base)
+                if not target_path.is_absolute():
+                    # Convert relative path to absolute based on workspace root
+                    target_path = (workspace_root / target_path).resolve()
+
+                if not is_safe_workspace_path(target_path, workspace_root):
+                    raise ConfigError(
+                        f"TARGETBASE must be within workspace in local mode: {self.target_base}\n"
+                        f"Workspace root: {workspace_root}\n"
+                        f"Use './.snapshots' to store snapshots within the project"
+                    )
+
+                # Validate each directory in DIRS is within workspace
+                for d in self.dirs:
+                    dir_path = Path(d)
+                    if not dir_path.is_absolute():
+                        # Convert relative path to absolute
+                        dir_path = (workspace_root / dir_path).resolve()
+
+                    if not is_safe_workspace_path(dir_path, workspace_root):
+                        raise ConfigError(
+                            f"Directory must be within workspace in local mode: {d}\n"
+                            f"Workspace root: {workspace_root}\n"
+                            f"Use '.' to backup the entire project directory"
+                        )
+        else:
+            # In non-local mode, require absolute paths
             for d in self.dirs:
                 if not os.path.isabs(d):
-                    raise ConfigError(f"Directory must be absolute path: {d}")
+                    raise ConfigError(f"Directory must be absolute path in global mode: {d}")
 
             if not os.path.isabs(self.target_base):
-                raise ConfigError(f"TARGETBASE must be absolute path: {self.target_base}")
+                raise ConfigError(f"TARGETBASE must be absolute path in global mode: {self.target_base}")
 
     @classmethod
     def load(cls, config_path: Optional[str] = None) -> "Config":

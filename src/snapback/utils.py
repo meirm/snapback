@@ -6,6 +6,7 @@ and other helper operations.
 
 import os
 import re
+import shutil
 from pathlib import Path
 from typing import Optional
 
@@ -263,3 +264,169 @@ def get_snapshot_age_description(snapshot_name: str) -> str:
             return f"{number + 1} months ago"
 
     return snapshot_name
+
+
+def is_safe_workspace_path(path: Path, workspace_root: Path) -> bool:
+    """Check if a path is within workspace boundaries.
+
+    Args:
+        path: Path to check
+        workspace_root: Workspace root directory
+
+    Returns:
+        True if path is within workspace_root, False otherwise
+    """
+    try:
+        # Resolve both paths to handle symlinks and normalize
+        resolved_path = path.resolve()
+        resolved_workspace = workspace_root.resolve()
+
+        # Check if the path is within the workspace
+        resolved_path.relative_to(resolved_workspace)
+        return True
+    except (ValueError, RuntimeError, OSError):
+        # ValueError: path is not relative to workspace
+        # RuntimeError: infinite loop in symlink resolution
+        # OSError: permission issues or broken symlinks
+        return False
+
+
+def is_dangerous_targetbase(path: str, is_local: bool) -> tuple[bool, str]:
+    """Check if a TARGETBASE path is dangerous.
+
+    Args:
+        path: TARGETBASE path to check
+        is_local: True if in project-local mode
+
+    Returns:
+        Tuple of (is_dangerous, reason) where is_dangerous is True if path
+        is unsafe, and reason explains why
+    """
+    # System directories that should never be used as TARGETBASE
+    system_dirs = {
+        "/",
+        "/home",
+        "/usr",
+        "/etc",
+        "/var",
+        "/tmp",
+        "/boot",
+        "/sys",
+        "/proc",
+        "/dev",
+        "/bin",
+        "/sbin",
+        "/lib",
+        "/lib64",
+        "/opt",
+        "/root",
+        "/run",
+        "/srv",
+        "/mnt",
+        "/media",
+    }
+
+    # Expand path to handle ~ and environment variables
+    expanded = expand_path(path)
+    try:
+        # Try to resolve, but allow non-existent paths (they might be created later)
+        if expanded.exists():
+            resolved = expanded.resolve()
+        else:
+            # For non-existent paths, use absolute path without resolving symlinks
+            resolved = expanded.absolute()
+    except (RuntimeError, OSError):
+        # Can't resolve path (infinite symlink loop, permission issues, etc.)
+        return (True, f"Path cannot be resolved: {path}")
+
+    # Check if it's a system directory (use both resolved path and original expanded path)
+    resolved_str = str(resolved)
+    if resolved_str in system_dirs or str(expanded.absolute()) in system_dirs:
+        return (True, f"Cannot use system directory: {path}")
+
+    # Check if it's the user's home directory root
+    home_dir = Path.home().resolve()
+    if resolved == home_dir:
+        return (True, f"Cannot use home directory root. Use a subdirectory like '{home_dir}/.Snapshots'")
+
+    # In local mode, check for parent directory references
+    if is_local:
+        # Check if path contains .. components (before resolution)
+        path_parts = Path(path).parts
+        if ".." in path_parts:
+            return (True, f"Parent directory references (..) not allowed in local mode. Use './.snapshots' instead")
+
+        # Check if it's an absolute path pointing outside workspace
+        # Note: This check is done in config validation with workspace context
+        if os.path.isabs(path):
+            return (True, f"Absolute paths not recommended in local mode. Use relative path like './.snapshots'")
+
+    return (False, "")
+
+
+def safe_rmtree(path: Path, workspace_root: Optional[Path] = None) -> None:
+    """Safely remove a directory tree without following symlinks.
+
+    Args:
+        path: Directory path to remove
+        workspace_root: Optional workspace root for boundary validation
+
+    Raises:
+        ValueError: If path is outside workspace (when workspace_root is provided)
+        FileNotFoundError: If path doesn't exist
+    """
+    if not path.exists():
+        raise FileNotFoundError(f"Path does not exist: {path}")
+
+    # Validate workspace boundaries if provided
+    if workspace_root is not None:
+        if not is_safe_workspace_path(path, workspace_root):
+            raise ValueError(
+                f"Path is outside workspace boundaries: {path} "
+                f"(workspace: {workspace_root})"
+            )
+
+    # Use shutil.rmtree with onerror callback to handle symlinks safely
+    def handle_remove_readonly(func, path_str, exc):
+        """Error handler for read-only files."""
+        # If it's a permission error, try to make writable and retry
+        if isinstance(exc[1], PermissionError):
+            os.chmod(path_str, 0o700)
+            func(path_str)
+        else:
+            raise
+
+    # Remove the directory tree
+    # Note: shutil.rmtree already doesn't follow symlinks by default
+    # It removes symlinks themselves without following them
+    shutil.rmtree(path, onerror=handle_remove_readonly)
+
+
+def validate_workspace_path(path: Path, workspace_root: Path, operation: str) -> None:
+    """Validate that a path is safe for operations in local mode.
+
+    Args:
+        path: Path to validate
+        workspace_root: Workspace root directory
+        operation: Description of operation (for error messages)
+
+    Raises:
+        ValueError: If path is unsafe or outside workspace boundaries
+    """
+    # Check for path traversal attempts using .. components
+    try:
+        path_str = str(path)
+        if ".." in Path(path_str).parts:
+            raise ValueError(
+                f"Path traversal (..) not allowed in {operation}: {path}. "
+                f"All paths must be within workspace: {workspace_root}"
+            )
+    except (ValueError, RuntimeError):
+        raise ValueError(f"Invalid path for {operation}: {path}")
+
+    # Check workspace boundaries
+    if not is_safe_workspace_path(path, workspace_root):
+        raise ValueError(
+            f"Path is outside workspace for {operation}: {path}. "
+            f"In local mode, all operations must stay within: {workspace_root}"
+        )
