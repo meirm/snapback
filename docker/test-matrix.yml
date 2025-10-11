@@ -1,0 +1,377 @@
+# Test Matrix Configuration for snapback Container Testing
+#
+# Defines test configurations, expected resource usage, pass/fail criteria,
+# performance baselines, and regression detection thresholds.
+
+version: "1.0"
+
+# Test Configuration Levels
+test_levels:
+  quick:
+    description: "Quick smoke tests for rapid feedback"
+    duration: "< 5 minutes"
+    resource_requirements:
+      memory: "512MB"
+      cpu: "1 core"
+      disk: "2GB"
+    tests:
+      - unit_tests
+      - basic_backup
+      - basic_recovery
+    pass_criteria:
+      - all_tests_pass: true
+      - duration_seconds: "< 300"
+      - exit_code: 0
+
+  standard:
+    description: "Standard test suite for regular CI/CD"
+    duration: "< 30 minutes"
+    resource_requirements:
+      memory: "2GB"
+      cpu: "2 cores"
+      disk: "10GB"
+    tests:
+      - unit_tests
+      - integration_tests
+      - rotation_tests
+      - recovery_tests
+      - permission_tests
+    pass_criteria:
+      - all_tests_pass: true
+      - coverage_percent: ">= 80"
+      - duration_seconds: "< 1800"
+      - exit_code: 0
+
+  full:
+    description: "Full test suite including stress tests"
+    duration: "< 2 hours"
+    resource_requirements:
+      memory: "4GB"
+      cpu: "4 cores"
+      disk: "50GB"
+    tests:
+      - unit_tests
+      - integration_tests
+      - extreme_scenarios
+      - performance_benchmarks
+      - security_tests
+    pass_criteria:
+      - all_tests_pass: true
+      - coverage_percent: ">= 85"
+      - duration_seconds: "< 7200"
+      - performance_regression: "< 10%"
+      - exit_code: 0
+
+  extreme:
+    description: "Extreme stress tests for overnight runs"
+    duration: "< 6 hours"
+    resource_requirements:
+      memory: "8GB"
+      cpu: "8 cores"
+      disk: "100GB"
+    tests:
+      - all_extreme_scenarios
+      - large_scale_tests
+      - endurance_tests
+    pass_criteria:
+      - critical_scenarios_pass: true
+      - duration_seconds: "< 21600"
+      - no_crashes: true
+      - no_data_loss: true
+
+# Extreme Test Scenarios Configuration
+extreme_scenarios:
+  test_1_large_file:
+    name: "Large Single File Backup"
+    description: "Backup files larger than 1GB"
+    config:
+      file_size: "1.5GB"
+      file_count: 1
+    expected_duration: "5-10 minutes"
+    pass_criteria:
+      - file_backed_up: true
+      - hard_links_work: true
+      - recovery_successful: true
+    resource_limits:
+      memory: "2GB"
+      disk: "5GB"
+
+  test_2_high_file_count:
+    name: "High File Count Stress Test"
+    description: "Backup >100k small files"
+    config:
+      file_size: "1KB"
+      file_count: 100000
+    expected_duration: "10-20 minutes"
+    pass_criteria:
+      - all_files_backed_up: true
+      - rotation_works: true
+      - space_efficient: true
+    resource_limits:
+      memory: "4GB"
+      disk: "20GB"
+    performance_baseline:
+      files_per_second: "> 1000"
+      space_ratio: "< 3x"
+
+  test_3_deep_nesting:
+    name: "Deep Directory Nesting"
+    description: "Test deep hierarchies (>50 levels)"
+    config:
+      nesting_depth: 60
+      files_per_level: 1
+    expected_duration: "2-5 minutes"
+    pass_criteria:
+      - all_directories_backed_up: true
+      - path_recreation_works: true
+      - recovery_successful: true
+    resource_limits:
+      memory: "1GB"
+      disk: "5GB"
+
+  test_4_rapid_rotation:
+    name: "Rapid Rotation Test"
+    description: "24 hourly snapshots in <10 minutes"
+    config:
+      snapshot_count: 24
+      rotation_type: "hourly"
+    expected_duration: "5-10 minutes"
+    pass_criteria:
+      - all_snapshots_created: true
+      - rotation_logic_correct: true
+      - no_data_loss: true
+    resource_limits:
+      memory: "2GB"
+      disk: "10GB"
+
+  test_5_full_rotation_cycle:
+    name: "Full Rotation Cycle"
+    description: "Complete hourly→daily→weekly→monthly"
+    expected_duration: "30-60 minutes"
+    pass_criteria:
+      - all_tiers_populated: true
+      - promotion_correct: true
+      - oldest_deleted_correctly: true
+    resource_limits:
+      memory: "4GB"
+      disk: "20GB"
+
+  test_6_disk_space_constraint:
+    name: "Disk Space Constraint"
+    description: "Test with limited disk space"
+    config:
+      available_space: "10GB"
+      data_size: "8GB"
+    expected_duration: "10-20 minutes"
+    pass_criteria:
+      - graceful_handling: true
+      - clear_error_messages: true
+      - no_corruption: true
+    resource_limits:
+      memory: "2GB"
+      disk: "15GB"
+
+  test_7_permission_edge_cases:
+    name: "Permission Chaos Test"
+    description: "Various permission scenarios"
+    config:
+      permission_types:
+        - "444 (readonly)"
+        - "755 (executable)"
+        - "600 (owner only)"
+        - "200 (write only)"
+    expected_duration: "5-10 minutes"
+    pass_criteria:
+      - appropriate_handling: true
+      - no_crashes: true
+      - permissions_preserved: true
+    resource_limits:
+      memory: "1GB"
+      disk: "5GB"
+
+  test_8_corruption_recovery:
+    name: "Corruption Recovery Test"
+    description: "Recover from corrupted snapshots"
+    expected_duration: "5-10 minutes"
+    pass_criteria:
+      - corruption_detected: true
+      - clear_error_messages: true
+      - safe_recovery: true
+    resource_limits:
+      memory: "2GB"
+      disk: "10GB"
+
+  test_9_hard_link_verification:
+    name: "Hard Link Space Efficiency"
+    description: "Verify hard links save space"
+    config:
+      snapshot_count: 5
+      identical_files: true
+    expected_duration: "10-15 minutes"
+    pass_criteria:
+      - space_ratio_lt_3x: true
+      - inode_sharing_verified: true
+      - space_calculation_correct: true
+    resource_limits:
+      memory: "2GB"
+      disk: "20GB"
+    performance_baseline:
+      space_multiplier: "< 3.0"
+      hard_link_percentage: "> 80%"
+
+  test_10_rsync_parameters:
+    name: "rsync Parameter Edge Cases"
+    description: "Test unusual rsync configurations"
+    config:
+      parameters:
+        - "--max-size=1.5m"
+        - "--exclude='*.tmp'"
+        - "--delete"
+    expected_duration: "5-10 minutes"
+    pass_criteria:
+      - parameters_applied: true
+      - filtering_correct: true
+      - no_failures: true
+    resource_limits:
+      memory: "1GB"
+      disk: "10GB"
+
+# Performance Baselines
+performance_baselines:
+  unit_tests:
+    duration_seconds: 30
+    variation_threshold: 0.2  # 20% variation allowed
+
+  backup_speed:
+    small_files_per_second: 1000
+    large_file_mb_per_second: 100
+    variation_threshold: 0.15  # 15% variation allowed
+
+  space_efficiency:
+    max_space_multiplier: 3.0  # Max 3x source size for 5 snapshots
+    min_hard_link_percentage: 80  # At least 80% files hard-linked
+    variation_threshold: 0.1  # 10% variation allowed
+
+  recovery_time:
+    small_dataset_seconds: 30
+    large_dataset_seconds: 300
+    variation_threshold: 0.25  # 25% variation allowed
+
+# Regression Detection Thresholds
+regression_thresholds:
+  performance:
+    max_degradation_percent: 10
+    measurement_window: "last 10 runs"
+    action_on_breach: "fail"
+
+  memory:
+    max_increase_percent: 15
+    measurement_window: "last 10 runs"
+    action_on_breach: "warn"
+
+  disk_usage:
+    max_increase_percent: 20
+    measurement_window: "last 10 runs"
+    action_on_breach: "warn"
+
+  test_duration:
+    max_increase_percent: 25
+    measurement_window: "last 10 runs"
+    action_on_breach: "warn"
+
+# Quality Gates
+quality_gates:
+  code_coverage:
+    unit_tests: ">= 80%"
+    integration_tests: ">= 70%"
+    overall: ">= 75%"
+
+  test_success_rate:
+    quick: "100%"
+    standard: ">= 95%"
+    full: ">= 90%"
+    extreme: ">= 85%"
+
+  security:
+    critical_vulnerabilities: 0
+    high_vulnerabilities: "< 5"
+    medium_vulnerabilities: "< 10"
+
+  image_size:
+    test_image: "< 500MB"
+    runtime_image: "< 300MB"
+
+# Python Version Matrix
+python_versions:
+  - version: "3.10"
+    status: "stable"
+    required: true
+  - version: "3.11"
+    status: "stable"
+    required: true
+  - version: "3.12"
+    status: "stable"
+    required: false
+
+# Container Runtime Support
+container_runtimes:
+  - name: "podman"
+    priority: "primary"
+    features:
+      - "rootless"
+      - "daemonless"
+      - "pods"
+  - name: "docker"
+    priority: "secondary"
+    features:
+      - "docker-compose"
+      - "buildkit"
+
+# Monitoring and Alerting
+monitoring:
+  metrics_to_track:
+    - "test_duration"
+    - "memory_usage"
+    - "disk_usage"
+    - "cpu_usage"
+    - "success_rate"
+    - "coverage_percentage"
+
+  alert_conditions:
+    - metric: "success_rate"
+      threshold: "< 90%"
+      severity: "critical"
+
+    - metric: "test_duration"
+      threshold: "> 2x baseline"
+      severity: "warning"
+
+    - metric: "memory_usage"
+      threshold: "> 8GB"
+      severity: "warning"
+
+# CI/CD Integration
+cicd_recommendations:
+  pull_request:
+    test_level: "quick"
+    required: true
+
+  merge_to_main:
+    test_level: "standard"
+    required: true
+
+  nightly_build:
+    test_level: "full"
+    required: false
+
+  weekly_build:
+    test_level: "extreme"
+    required: false
+
+  release:
+    test_level: "full"
+    required: true
+    additional_checks:
+      - "security_scan"
+      - "performance_benchmark"
+      - "image_size_check"

@@ -1,0 +1,161 @@
+version: '3.8'
+
+services:
+  # Main snapback test service
+  snapback-test:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: test
+      args:
+        PYTHON_VERSION: "3.10"
+    image: snapback:test
+    container_name: snapback-test
+    volumes:
+      # Mount source code for live development
+      - ../src:/app/src:ro
+      - ../tests:/app/tests:ro
+      - ../pyproject.toml:/app/pyproject.toml:ro
+
+      # Mount docker scripts
+      - ./generate-test-data.sh:/app/docker/generate-test-data.sh:ro
+      - ./test-scenarios.sh:/app/docker/test-scenarios.sh:ro
+
+      # Persistent volumes for test data and snapshots
+      - test-data:/home/snapback/test_data
+      - snapshots:/home/snapback/.Snapshots
+      - test-results:/home/snapback/test_results
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TEST_DATA_DIR=/home/snapback/test_data
+      - SNAPSHOT_DIR=/home/snapback/.Snapshots
+      - VERBOSE=0
+    working_dir: /app
+    command: ["uv", "run", "pytest", "tests/", "-v", "--color=yes"]
+    profiles:
+      - default
+      - quick
+
+  # Service for extreme scenario testing
+  snapback-extreme:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: test
+      args:
+        PYTHON_VERSION: "3.10"
+    image: snapback:test
+    container_name: snapback-extreme
+    volumes:
+      - ../src:/app/src:ro
+      - ./generate-test-data.sh:/app/docker/generate-test-data.sh:ro
+      - ./test-scenarios.sh:/app/docker/test-scenarios.sh:ro
+      - test-data-extreme:/home/snapback/test_data
+      - snapshots-extreme:/home/snapback/.Snapshots
+      - test-results:/home/snapback/test_results
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TEST_DATA_DIR=/home/snapback/test_data
+      - SNAPSHOT_DIR=/home/snapback/.Snapshots
+      - LARGE_FILE_SIZE=2G
+      - HIGH_FILE_COUNT=50000
+      - DEEP_NESTING_LEVELS=60
+      - VERBOSE=1
+    working_dir: /app
+    command: ["/app/docker/test-scenarios.sh"]
+    profiles:
+      - extreme
+
+  # Service for performance benchmarking
+  snapback-bench:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: runtime
+      args:
+        PYTHON_VERSION: "3.10"
+    image: snapback:runtime
+    container_name: snapback-bench
+    volumes:
+      - ./generate-test-data.sh:/app/docker/generate-test-data.sh:ro
+      - bench-data:/home/snapback/test_data
+      - bench-snapshots:/home/snapback/.Snapshots
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TEST_DATA_DIR=/home/snapback/test_data
+      - SNAPSHOT_DIR=/home/snapback/.Snapshots
+    working_dir: /app
+    command: ["snapback", "--help"]
+    profiles:
+      - bench
+
+  # Service for Python 3.11 testing
+  snapback-py311:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: test
+      args:
+        PYTHON_VERSION: "3.11"
+    image: snapback:test-py311
+    container_name: snapback-test-py311
+    volumes:
+      - ../src:/app/src:ro
+      - ../tests:/app/tests:ro
+      - ../pyproject.toml:/app/pyproject.toml:ro
+      - test-data:/home/snapback/test_data
+      - snapshots:/home/snapback/.Snapshots
+    environment:
+      - PYTHONUNBUFFERED=1
+    working_dir: /app
+    command: ["uv", "run", "pytest", "tests/", "-v"]
+    profiles:
+      - matrix
+
+  # Service for Python 3.12 testing
+  snapback-py312:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: test
+      args:
+        PYTHON_VERSION: "3.12"
+    image: snapback:test-py312
+    container_name: snapback-test-py312
+    volumes:
+      - ../src:/app/src:ro
+      - ../tests:/app/tests:ro
+      - ../pyproject.toml:/app/pyproject.toml:ro
+      - test-data:/home/snapback/test_data
+      - snapshots:/home/snapback/.Snapshots
+    environment:
+      - PYTHONUNBUFFERED=1
+    working_dir: /app
+    command: ["uv", "run", "pytest", "tests/", "-v"]
+    profiles:
+      - matrix
+
+volumes:
+  # Persistent volumes for test data
+  test-data:
+    driver: local
+  snapshots:
+    driver: local
+  test-results:
+    driver: local
+
+  # Extreme test volumes
+  test-data-extreme:
+    driver: local
+  snapshots-extreme:
+    driver: local
+
+  # Benchmark volumes
+  bench-data:
+    driver: local
+  bench-snapshots:
+    driver: local
+
+networks:
+  default:
+    name: snapback-network

@@ -24,6 +24,7 @@
 - [Automated Backups with Cron](#automated-backups-with-cron)
 - [Utility Scripts](#utility-scripts)
 - [How It Works](#how-it-works)
+- [Container Testing](#container-testing)
 - [Troubleshooting](#troubleshooting)
 - [Limitations](#limitations)
 - [Best Practices](#best-practices)
@@ -650,6 +651,96 @@ rsync -av --delete $RSYNC_PARAMS $RSYNCPARAMS SOURCE/. TARGET/.
 - **Time coverage**: ~1 year of history
 - **Tested scale**: ~100,000 files, ~100GB datasets
 - **Directory structure**: All snapshots in `$TARGETBASE`
+
+## Container Testing
+
+snapback includes comprehensive container-based testing infrastructure using **Podman** (recommended) or Docker. This allows you to test snapback in isolated environments with extreme scenarios including large files (>1GB), high file counts (>100k), and stress testing.
+
+### Quick Start with Containers
+
+**Using Podman (recommended):**
+```bash
+# Build the image
+make podman-build
+
+# Run tests
+make podman-test
+
+# Run extreme scenarios
+make podman-test-extreme
+```
+
+**Using Docker:**
+```bash
+# Build the image
+make docker-build
+
+# Run tests
+make docker-test
+
+# Run extreme scenarios
+make docker-test-extreme
+```
+
+**Auto-detect container runtime:**
+```bash
+# Automatically uses podman if available, falls back to docker
+make container-build
+make container-test
+```
+
+### Available Test Scenarios
+
+The test suite includes 10 extreme scenarios:
+
+1. **Large Single File Backup** (>1GB files)
+2. **High File Count** (>100k small files)
+3. **Deep Directory Nesting** (>50 levels)
+4. **Rapid Backup Cycles** (24 hourly snapshots in minutes)
+5. **Full Rotation Cycle** (hourly → daily → weekly → monthly)
+6. **Disk Space Constraints**
+7. **Permission Edge Cases**
+8. **Corruption Recovery**
+9. **Hard Link Verification**
+10. **rsync Parameter Edge Cases**
+
+### Container Testing Documentation
+
+For comprehensive container testing documentation including:
+- Detailed Podman and Docker instructions
+- All test scenario descriptions
+- Performance benchmarking guide
+- CI/CD integration examples
+- Troubleshooting guide
+
+See **[DOCKER_TESTING.md](DOCKER_TESTING.md)** for complete documentation.
+
+### Makefile Commands
+
+```bash
+# Container building
+make container-build        # Auto-detect runtime
+make docker-build          # Use Docker
+make podman-build          # Use Podman
+
+# Running tests
+make container-test        # Quick test (auto-detect)
+make docker-test           # Quick test (Docker)
+make podman-test           # Quick test (Podman)
+make docker-test-extreme   # Extreme scenarios (Docker)
+make podman-test-extreme   # Extreme scenarios (Podman)
+
+# Interactive shell
+make docker-shell          # Enter Docker container
+make podman-shell          # Enter Podman container
+
+# Benchmarking
+make docker-bench          # Performance benchmarks
+
+# Cleanup
+make docker-clean          # Clean Docker resources
+make podman-clean          # Clean Podman resources
+```
 
 ## Troubleshooting
 
