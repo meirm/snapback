@@ -7,6 +7,8 @@ import argparse
 import sys
 from pathlib import Path
 
+from snapback import __version__
+
 from .backup import BackupManager
 from .config import Config
 from .diff import DiffManager
@@ -34,6 +36,11 @@ def create_parser() -> argparse.ArgumentParser:
     )
 
     # Global options
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"snapback {__version__}",
+    )
     parser.add_argument(
         "--config",
         metavar="PATH",
@@ -548,7 +555,7 @@ def cmd_list(args: argparse.Namespace) -> int:
 
     if not snapshots:
         print("No snapshots found")
-        print(f"Run 'snapback init' to initialize the snapshot directory structure")
+        print("Run 'snapback init' to initialize the snapshot directory structure")
         return 0
 
     # Sort by age

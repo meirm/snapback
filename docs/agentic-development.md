@@ -567,6 +567,156 @@ fi
    - snapback for experiments (temporary)
    - git for finalized changes (permanent)
 
+## Understanding Hard Links and Git Branch Switching
+
+### How snapback Achieves Space Efficiency
+
+snapback uses **hard links** to create space-efficient snapshots. A hard link is a directory entry that points to the same file data (inode) on disk:
+
+```
+file.js (inode 12345, 10KB data)
+.snapshots/hour-0/file.js → inode 12345 (same data, no extra space)
+.snapshots/hour-1/file.js → inode 12345 (same data, no extra space)
+
+Total space: 10KB (not 30KB!)
+```
+
+When a file is modified, only the NEW version takes space. Old snapshots continue pointing to the old inode.
+
+### Git Branch Switching and Hard Links
+
+**Important**: Git can break hard links when switching branches, depending on how it modifies files.
+
+**Git has two strategies**:
+
+1. **In-Place Modification** (preserves hard links)
+   - Git modifies file content directly
+   - Inode stays the same
+   - Hard links remain intact
+   - **Common for small changes**
+
+2. **Delete-and-Replace** (breaks hard links)
+   - Git deletes old file
+   - Creates new file with new inode
+   - Hard links to old inode become orphaned
+   - **Common for branch switches and large changes**
+
+### Space Impact Example
+
+**Without git branch switching**:
+```
+Working dir: 10GB
+hour-0: hard-linked to working dir → 0 extra space
+hour-1: hard-linked to hour-0 → 0 extra space
+Total: 10GB
+```
+
+**After git checkout to different branch**:
+```
+Working dir: 10GB (new inodes from git checkout)
+hour-0: 10GB (old inodes, no longer linked to working dir)
+hour-1: 10GB (old inodes, still linked to old hour-0)
+
+Total: 10GB + 0 (hour-0 linked to hour-1) = 10GB initially
+
+After next snapback hourly:
+hour-0 updated with new working dir state (breaks link to hour-1)
+Total: 10GB (working) + 10GB (hour-0) + 10GB (hour-1) = 30GB temporarily
+```
+
+### When Hard Links Break
+
+Hard links are broken by:
+- **Git operations**: `git checkout`, `git switch`, `git reset --hard`
+- **Git merges**: Conflict resolution creates new files
+- **Editor "safe save"**: Some editors delete-and-recreate on save
+- **Large file changes**: Git may optimize with delete-and-replace
+
+### Best Practices for Git + snapback
+
+1. **Snapshot Before Branch Switching**
+   ```bash
+   # Before switching branches
+   snapback hourly
+   snapback tag hour-0 "branch-feature-x-$(date +%Y%m%d)"
+
+   git checkout main
+
+   # After switching
+   snapback hourly
+   snapback tag hour-0 "branch-main-$(date +%Y%m%d)"
+   ```
+
+2. **Understand Space Trade-offs**
+   - Frequent branch switching = higher space usage
+   - Snapshots still work correctly (preserve state accurately)
+   - Space efficiency reduced but functionality intact
+
+3. **Use Git Worktrees for Parallel Branches** (alternative)
+   ```bash
+   # Instead of switching branches repeatedly
+   git worktree add ../myproject-feature-x feature-x
+   git worktree add ../myproject-main main
+
+   # Each worktree can have its own .snapshots/
+   ```
+
+4. **Monitor Disk Usage**
+   ```bash
+   # Check snapshot space usage
+   du -sh .snapshots/
+
+   # Check for hard link efficiency
+   # Same inode number means files are hard-linked
+   ls -li file.js
+   ls -li .snapshots/hour-0/file.js
+   ```
+
+5. **Clean Up Snapshots After Branch Work**
+   ```bash
+   # After completing feature branch and merging
+   # Old branch snapshots can be removed
+   rm -rf .snapshots/branch-feature-x-*
+   ```
+
+### Why This Isn't a Bug
+
+The behavior is **correct by design**:
+
+- snapback accurately preserves state at each checkpoint
+- When you switch branches, you GET a different state
+- Snapshots of old branch remain accessible for rollback
+- The space trade-off is inherent to how git manages files
+
+**Philosophy**: snapback prioritizes **correctness** (accurate state preservation) over space efficiency when they conflict. You can always rollback to any snapshot, even after multiple branch switches.
+
+### Recommendations
+
+**For agentic development workflows**:
+
+1. **Single Branch Development** (most common)
+   - Work on one branch at a time
+   - Hard links mostly preserved
+   - Space efficiency excellent
+
+2. **Multi-Branch Experimentation**
+   - Expect higher space usage
+   - Budget 2-3x source size for snapshots
+   - Clean up old snapshots regularly
+
+3. **Long-Term Branch Snapshots**
+   - Use tagged snapshots for important branch states
+   - Remove untested experiment snapshots quickly
+   - Keep master/main snapshots separate
+
+4. **Disk Space Monitoring**
+   ```bash
+   # Add to your workflow
+   du -sh .snapshots/ && df -h .
+   ```
+
+The key insight: **snapback works perfectly with git**, but frequent branch switching increases space usage. This is a documented trade-off, not a limitation.
+
 ## Troubleshooting
 
 ### Snapback Not Respecting .gitignore

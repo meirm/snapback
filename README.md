@@ -285,7 +285,16 @@ git commit -m "Add AI-generated feature"
 # 8. Continue development...
 ```
 
-See **[docs/agentic-development.md](docs/agentic-development.md)** for comprehensive guide on using snapback with AI agents and development workflows.
+### Git Branch Switching and Hard Links
+
+**Important**: Git branch switching can break hard links between snapshots when git uses its delete-and-replace strategy. This reduces space efficiency but does not affect functionality—snapshots still preserve state accurately.
+
+**Space Impact**: Frequent branch switching may increase disk usage from ~1.5-3x to ~2-3x source size. This is expected behavior, not a bug. To minimize impact:
+- Snapshot before switching branches and tag important states
+- Use git worktrees for parallel branch work instead of frequent switching
+- Monitor disk usage with `du -sh .snapshots/`
+
+See **[docs/agentic-development.md](docs/agentic-development.md)** for comprehensive guide on using snapback with AI agents, development workflows, and detailed explanation of hard links and git interaction.
 
 ## Configuration
 
@@ -1160,6 +1169,7 @@ Be aware of these current limitations:
 - **No incremental file-level tracking**: Entire files are updated, not byte-level deltas
 - **No encryption**: Snapshots stored in plain text (use encrypted filesystem if needed)
 - **No compression**: Files stored as-is (use filesystem compression if needed)
+- **Git branch switching reduces space efficiency**: When git uses delete-and-replace strategy during branch switches, hard links between snapshots are broken, increasing disk usage. Functionality remains intact—snapshots accurately preserve state—but space efficiency may reduce from ~1.5-3x to ~2-3x source size with frequent branch switching. This is expected behavior, not a bug. See [Git Branch Switching and Hard Links](#git-branch-switching-and-hard-links) for details and mitigation strategies.
 
 ## Best Practices
 
