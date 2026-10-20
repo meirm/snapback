@@ -10,6 +10,13 @@
 ## Table of Contents
 
 - [Overview](#overview)
+- [Two implementations](#two-implementations)
+- [Project-local snapshots (`snapback.sh`)](#project-local-snapshots-snapbacksh)
+  - [Restoring](#restoring)
+  - [Layout](#layout)
+  - [Running on a production server](#running-on-a-production-server)
+  - [Scheduling](#scheduling)
+  - [Tests](#tests-1)
 - [Why snapback?](#why-snapback)
 - [Key Features](#key-features)
 - [Prerequisites](#prerequisites)
@@ -100,6 +107,101 @@ reported as a success.
 `hour-0…hour-23`, `day-0…7`, `week-0…4`, `month-0…12` (created by `init`), plus tags. Rotation
 hard-links unchanged files, so a project with many snapshots costs roughly its own size plus the
 changes.
+
+### Running on a production server
+
+Snapshots live inside the project, which creates two obligations.
+
+**1. Keep them out of the web root.** If the project directory is served by a web server,
+`.snapback/` is a downloadable copy of your entire application — including any secrets in it.
+Deny dot-files and dot-directories:
+
+```nginx
+# nginx — deny dot-directories (.snapback, .snapshots, .git) and dot-files (.snapshotrc, .env)
+location ~ /\. {
+    deny all;
+    access_log off;
+    log_not_found off;
+}
+```
+
+```apache
+# apache — same rules
+<DirectoryMatch "/\.[^/]*">
+    Require all denied
+</DirectoryMatch>
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>
+```
+
+Alternatively, keep the snapshot directory outside the document root. If you do, remember it must
+stay on the same filesystem for hard links to work, and that `init` only accepts paths inside the
+project — a directory excluded from serving is the safer answer.
+
+**2. Snapshots share the partition with the application.** Rotation hard-links unchanged files, so
+the cost is your data plus the changes — but a large file that changes every hour costs a full copy
+every hour. Monitor free space on that partition and tune `h_snaps`/`d_snaps` if needed.
+
+**It is not a database backup.** rsync reading an open database's files can capture torn pages. Dump
+the database to a directory and let snapback snapshot that, rather than snapshotting live database
+files and calling it a backup.
+
+### Scheduling
+
+Cron works, but cron's `PATH` is minimal (`/usr/bin:/bin`). If rsync or the script lives elsewhere,
+set `PATH` in the crontab or use absolute paths:
+
+```cron
+PATH=/usr/local/bin:/usr/bin:/bin
+# snapback.sh resolves ./.snapshotrc from the working directory, so cd to the project first
+0  * * * *  cd /path/to/project && ./snapback.sh hourly  >> /var/log/snapback.log 2>&1
+58 23 * * * cd /path/to/project && ./snapback.sh daily   >> /var/log/snapback.log 2>&1
+56 22 * * 1 cd /path/to/project && ./snapback.sh weekly  >> /var/log/snapback.log 2>&1
+0  1 1 * *  cd /path/to/project && ./snapback.sh monthly >> /var/log/snapback.log 2>&1
+```
+
+On Linux, systemd timer units are the sturdier option — real logging, catch-up after downtime, and
+no `PATH` surprises:
+
+```ini
+# /etc/systemd/system/snapback-hourly.service
+[Unit]
+Description=snapback hourly snapshot
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+# Either set the working directory, or pass --config with the full path to the config
+WorkingDirectory=/path/to/project
+ExecStart=/path/to/project/snapback.sh --config /path/to/project/.snapshotrc hourly
+```
+
+```ini
+# /etc/systemd/system/snapback-hourly.timer
+[Unit]
+Description=Run snapback hourly
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target
+```
+
+```bash
+systemctl daemon-reload
+systemctl enable --now snapback-hourly.timer
+systemctl list-timers snapback-hourly.timer   # next run, last run
+journalctl -u snapback-hourly.service         # what it did
+```
+
+Repeat the pair for `daily`, `weekly` and `monthly` with their own `OnCalendar` values
+(`OnCalendar=daily`, `weekly`, `monthly`). `RandomizedDelaySec` avoids several projects hitting
+rsync at the same instant.
 
 ### Tests
 
@@ -561,6 +663,11 @@ Add these entries:
 ```
 
 **Important**: Replace `/path/to/snapback` with the actual path to your snapback script.
+
+For the project-local `snapback.sh` (recommended), use `cd /path/to/project && ./snapback.sh hourly`
+and see [Scheduling](#scheduling) for crontab entries and systemd timer units, and
+[Running on a production server](#running-on-a-production-server) for the nginx/apache rules that
+keep snapshots out of the web root.
 
 ### Timing Rationale
 
