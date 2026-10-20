@@ -173,7 +173,7 @@ snapback supports **project-local mode** for agentic software development workfl
 
 - **Session Checkpoints**: Create snapshots at key points during AI-assisted development
 - **Quick Rollbacks**: Instantly revert to previous states during experimentation
-- **Git-Friendly**: `.snapshots/` and `.snapshotrc` auto-added to `.gitignore`
+- **Git-Friendly**: the snapshot directory and `.snapshotrc` are auto-added to `.gitignore`
 - **Workspace Isolation**: Each project has its own snapshot history
 - **Respects .gitignore**: Automatically excludes files based on `.gitignore` patterns
 
@@ -189,6 +189,9 @@ snapback init
 # Or explicitly use local mode
 snapback init --local
 
+# Choose where snapshots are stored (default: .snapshots)
+snapback init --local --snapshots-dir .snapback
+
 # Create snapshots during development
 snapback hourly  # Creates a checkpoint
 
@@ -196,8 +199,10 @@ snapback hourly  # Creates a checkpoint
 snapback tag hour-0 "before-refactor"
 snapback tag hour-0 "working-feature-x"
 
-# Roll back if needed
-snapback recover hour-2  # Revert to 2 hours ago
+# Roll back if needed — preview first, then choose the safe form
+snapback recover --dry-run hour-2        # show what would change
+snapback recover --keep-existing hour-2  # restore only what is missing
+snapback recover hour-2                  # full rollback of the tracked tree
 ```
 
 ### How It Works
@@ -205,10 +210,11 @@ snapback recover hour-2  # Revert to 2 hours ago
 When you run `snapback init` in a git repository:
 
 1. Creates `./.snapshotrc` with local configuration
-2. Creates `./.snapshots/` directory for local snapshots
-3. Automatically updates `.gitignore` to exclude both files
+2. Creates the snapshot directory (`./.snapshots`, or the directory given to `--snapshots-dir`)
+3. Automatically updates `.gitignore` to exclude both that directory and `.snapshotrc`
 4. Respects your existing `.gitignore` patterns during backups
-5. Excludes `.git/` and `.snapshots/` by default
+5. Excludes `.git/`, the configured snapshot directory and `.snapshotrc` — the exclusion follows
+   the setting, so snapshots are never taken of the snapshots
 
 ### Configuration Priority
 
@@ -224,11 +230,29 @@ snapback checks for configuration in this order:
 # ./.snapshotrc (automatically created by snapback init --local)
 # Project-local configuration
 DIRS='.'
-TARGETBASE='./.snapshots'
+TARGETBASE='./.snapback'   # any directory inside the project
 RSYNC_PARAMS=''
 ```
 
 The configuration uses relative paths (`.` for current directory) which are only allowed in project-local mode.
+`TARGETBASE` must stay inside the project; `init` refuses absolute or escaping directories.
+A fully commented reference is in **[snapshotrc.example](snapshotrc.example)**.
+
+### Restoring safely
+
+| Goal | Command | Effect |
+| --- | --- | --- |
+| Roll the project back | `snapback recover hour-1` | Restores the snapshot and deletes files added since |
+| Preview a rollback | `snapback recover --dry-run hour-1` | Reports what would change, changes nothing |
+| Restore only what is missing | `snapback recover --keep-existing hour-1` | Never deletes or overwrites — safe when unsure |
+| Undelete files only | `snapback undel hour-1` | Restores missing files, never deletes |
+
+Paths that snapshots never contain are protected from deletion by any restore: `.git`, gitignored
+files and directories, the snapshot directory itself, and `.snapshotrc`. Everything else the
+snapshot does not contain is removed by a full `recover`.
+
+After a restore, verify the project is intact (`.git` present, `.snapshotrc` present, expected
+files readable) before continuing. Rehearse the first restore of any project in a copy.
 
 ### Global vs. Local Mode
 
@@ -275,8 +299,9 @@ snapback tag hour-0 "ai-generated-feature"
 # 5. Test the changes
 npm test
 
-# 6. If tests fail, revert
-snapback recover ai-generated-feature  # or hour-1
+# 6. If tests fail, revert — preview, then prefer the non-destructive form
+snapback recover --dry-run ai-generated-feature
+snapback recover --keep-existing ai-generated-feature   # or a full: recover ai-generated-feature
 
 # 7. If tests pass, commit to git
 git add .
@@ -295,6 +320,9 @@ git commit -m "Add AI-generated feature"
 - Monitor disk usage with `du -sh .snapshots/`
 
 See **[docs/agentic-development.md](docs/agentic-development.md)** for comprehensive guide on using snapback with AI agents, development workflows, and detailed explanation of hard links and git interaction.
+
+Agents can load **[skills/snapback-project-snapshots/SKILL.md](skills/snapback-project-snapshots/SKILL.md)** —
+setup, the checkpoint loop, which restore to choose, and how to verify one.
 
 ## Configuration
 

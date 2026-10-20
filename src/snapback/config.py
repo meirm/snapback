@@ -132,6 +132,81 @@ class Config:
             if not os.path.isabs(self.target_base):
                 raise ConfigError(f"TARGETBASE must be absolute path in global mode: {self.target_base}")
 
+    def _snapshot_dir_patterns(self) -> list[str]:
+        """Patterns that match the snapshot directory as rsync sees it.
+
+        rsync patterns are relative to the transfer root, which is the project in
+        project-local mode, so prefer the workspace-relative path and fall back to
+        the directory name.
+        """
+        if not self.target_base:
+            return [".snapshots"]
+
+        base = Path(self.target_base)
+        patterns: list[str] = []
+        if self.config_path:
+            root = Path(self.config_path).parent.resolve()
+            absolute = base if base.is_absolute() else root / base
+            try:
+                patterns.append(str(absolute.resolve().relative_to(root)))
+            except ValueError:
+                pass
+        patterns.append(base.name)
+        return [p for p in dict.fromkeys(patterns) if p]
+
+    @property
+    def local_excludes(self) -> list[str]:
+        """rsync arguments that protect non-snapshot content in project-local mode.
+
+        The snapshot base directory is a configuration value, so the exclusion has to
+        follow it: a hardcoded ``.snapshots`` exclusion lets a project pointed at any
+        other directory snapshot its own snapshots. ``.git``, the local configuration
+        file and gitignored paths are excluded too.
+
+        Returns:
+            List of rsync arguments (empty outside project-local mode).
+        """
+        if not self.is_local:
+            return []
+
+        patterns = [".git", *self._snapshot_dir_patterns()]
+        patterns.append(Path(self.config_path).name if self.config_path else ".snapshotrc")
+
+        args = ["--filter=:- .gitignore"]
+        for pattern in dict.fromkeys(patterns):
+            args.append(f"--exclude={pattern}")
+        return args
+
+    def recovery_protection(self, snapshot_root: Path) -> list[str]:
+        """rsync arguments that stop a recovery from deleting non-snapshot content.
+
+        A recovery runs ``rsync --delete`` from the snapshot back into the project,
+        so anything the project has that the snapshot does not — ``.git``, ignored
+        files, the snapshot directory itself, the local config — would be removed.
+        Merge-rule filters (``--filter=':- .gitignore'``) do not protect against
+        ``--delete``; explicit excludes and ``--exclude-from`` do, which is why the
+        snapshot's own ``.gitignore`` is read from the snapshot side.
+
+        Args:
+            snapshot_root: The snapshot directory being restored from.
+
+        Returns:
+            List of rsync arguments (empty outside project-local mode).
+        """
+        if not self.is_local:
+            return []
+
+        patterns = [".git", *self._snapshot_dir_patterns()]
+        patterns.append(Path(self.config_path).name if self.config_path else ".snapshotrc")
+
+        args: list[str] = []
+        for pattern in dict.fromkeys(patterns):
+            args.append(f"--exclude={pattern}")
+        gitignore = Path(snapshot_root) / ".gitignore"
+        if gitignore.exists():
+            args.append(f"--exclude-from={gitignore}")
+        return args
+
     @classmethod
     def load(cls, config_path: Optional[str] = None) -> "Config":
         """

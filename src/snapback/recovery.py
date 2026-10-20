@@ -37,18 +37,29 @@ class RecoveryManager:
             return Path(self.config.config_path).parent.resolve()
         return None
 
-    def recover(self, snapshot_name: str, dry_run: bool = False) -> None:
+    def recover(
+        self,
+        snapshot_name: str,
+        dry_run: bool = False,
+        keep_existing: bool = False,
+    ) -> None:
         """Perform a full recovery from a snapshot.
 
         This operation restores all backed-up directories from the specified
-        snapshot, overwriting current files.
+        snapshot, overwriting current files. Paths that snapshots never contain —
+        ``.git``, gitignored files and directories, the snapshot base directory and
+        the local configuration file — are protected from deletion, so a recovery
+        cannot destroy the repository or the project's own settings.
 
         Args:
             snapshot_name: Name of the snapshot to recover from (e.g., 'hour-1')
             dry_run: If True, only print what would be done
+            keep_existing: If True, restore only files missing from the project
+                (never delete or overwrite anything)
 
         Raises:
             FileNotFoundError: If the snapshot doesn't exist
+            RuntimeError: If rsync fails part-way through the restore
         """
         snapshot_path = self.snapshot_manager.get_snapshot_path(snapshot_name)
 
@@ -79,21 +90,26 @@ class RecoveryManager:
             # Ensure target directory exists
             source_path.parent.mkdir(parents=True, exist_ok=True)
 
-            # Run rsync to restore files
+            # Run rsync to restore files. The exclusion set keeps paths that are
+            # never in a snapshot (.git, gitignored content, the snapshot base
+            # directory, the local config) from being deleted by --delete.
             try:
-                cmd = [
-                    "rsync",
-                    "-a",
-                    "-v",
-                    "--delete",  # Delete files not in snapshot
-                    f"{snapshot_subdir}/",
-                    str(source_path),
-                ]
+                cmd = ["rsync", "-a", "-v"]
+                cmd.extend(self.config.recovery_protection(snapshot_path))
+                if keep_existing:
+                    cmd.append("--ignore-existing")
+                else:
+                    cmd.append("--delete")  # Delete files not in snapshot
+                cmd.extend([f"{snapshot_subdir}/", str(source_path)])
                 print(f"Running: {' '.join(cmd)}")
                 subprocess.run(cmd, check=True)
                 print(f"Recovered {source_path} from {snapshot_name}")
             except subprocess.CalledProcessError as e:
-                print(f"Error recovering {source_dir}: {e}")
+                raise RuntimeError(
+                    f"Recovery failed for {source_dir} (rsync exit {e.returncode}). "
+                    f"The project may be partially restored; protected paths "
+                    f"(.git, ignored files, the snapshot directory, the config) were left intact."
+                ) from e
 
     def undel(self, snapshot_name: str, dry_run: bool = False) -> None:
         """Recover only deleted files from a snapshot.
@@ -141,14 +157,10 @@ class RecoveryManager:
 
             # Run rsync with --ignore-existing to only restore deleted files
             try:
-                cmd = [
-                    "rsync",
-                    "-a",
-                    "-v",
-                    "--ignore-existing",  # Skip files that already exist
-                    f"{snapshot_subdir}/",
-                    str(source_path),
-                ]
+                cmd = ["rsync", "-a", "-v"]
+                cmd.extend(self.config.recovery_protection(snapshot_path))
+                cmd.append("--ignore-existing")  # Skip files that already exist
+                cmd.extend([f"{snapshot_subdir}/", str(source_path)])
                 print(f"Running: {' '.join(cmd)}")
                 subprocess.run(cmd, check=True)
                 print(f"Undeleted files to {source_path} from {snapshot_name}")

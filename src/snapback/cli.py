@@ -63,7 +63,16 @@ def create_parser() -> argparse.ArgumentParser:
     parser_init.add_argument(
         "--local",
         action="store_true",
-        help="Create project-local configuration (./. snapshotrc and ./.snapshots)",
+        help="Create project-local configuration (./.snapshotrc and ./.snapshots)",
+    )
+    parser_init.add_argument(
+        "--snapshots-dir",
+        metavar="DIR",
+        default=None,
+        help=(
+            "Project-local mode: directory for snapshots, relative to the project "
+            "(default: .snapshots). Example: --snapshots-dir .snapback"
+        ),
     )
     parser_init.add_argument(
         "--global",
@@ -116,6 +125,20 @@ def create_parser() -> argparse.ArgumentParser:
         "snapshot",
         help="Snapshot name to recover from (e.g., hour-1)",
     )
+    parser_recover.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Show what would be restored without changing anything",
+    )
+    parser_recover.add_argument(
+        "--keep-existing",
+        action="store_true",
+        help=(
+            "Restore only what is missing; never delete or overwrite. "
+            "Use this instead of a full rollback when unsure."
+        ),
+    )
 
     # undel command
     parser_undel = subparsers.add_parser(
@@ -125,6 +148,12 @@ def create_parser() -> argparse.ArgumentParser:
     parser_undel.add_argument(
         "snapshot",
         help="Snapshot name to recover from (e.g., hour-1)",
+    )
+    parser_undel.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Show what would be undeleted without changing anything",
     )
 
     # tag command
@@ -262,21 +291,41 @@ def cmd_init(args: argparse.Namespace) -> int:
     if use_local:
         # Project-local mode
         config_path = Path("./.snapshotrc")
-        snapshots_dir = Path("./.snapshots")
         gitignore_path = Path("./.gitignore")
+
+        # Snapshot directory: configurable, always relative to the project so the
+        # snapshots stay inside it and the exclusion can follow the setting.
+        requested_dir = getattr(args, "snapshots_dir", None)
+        if not isinstance(requested_dir, str) or not requested_dir.strip():
+            requested_dir = ".snapshots"
+        snapshots_dir = Path(requested_dir)
+        if snapshots_dir.is_absolute() or ".." in snapshots_dir.parts or snapshots_dir.name in ("", "."):
+            print(
+                "Error: --snapshots-dir must be a relative directory inside the project "
+                "(for example --snapshots-dir .snapback)",
+                file=sys.stderr,
+            )
+            return 1
+        snapshots_dir = Path(".") / snapshots_dir
+        snapshots_entry = f"{snapshots_dir.name}/"
 
         # Create local config if it doesn't exist
         if not config_path.exists():
             print("Creating project-local configuration...")
             config_content = Config.generate_sample_config(local=True)
+            if snapshots_dir.name != ".snapshots":
+                config_content = config_content.replace(
+                    "TARGETBASE='./.snapshots'",
+                    f"TARGETBASE='./{snapshots_dir.name}'",
+                )
             config_path.write_text(config_content)
             print(f"✓ Created {config_path}")
         else:
             print(f"Configuration already exists: {config_path}")
 
-        # Update .gitignore
+        # Update .gitignore with the directory actually in use
         print("Updating .gitignore...")
-        entries_to_add = [".snapshots/", ".snapshotrc"]
+        entries_to_add = [snapshots_entry, ".snapshotrc"]
         added = ensure_gitignore_entries(gitignore_path, entries_to_add)
 
         if added:
@@ -438,9 +487,13 @@ def cmd_recover(args: argparse.Namespace) -> int:
     recovery_manager = RecoveryManager(config)
 
     try:
-        recovery_manager.recover(args.snapshot, dry_run=args.dry_run)
+        recovery_manager.recover(
+            args.snapshot,
+            dry_run=args.dry_run,
+            keep_existing=getattr(args, "keep_existing", False),
+        )
         return 0
-    except (FileNotFoundError, ValueError) as e:
+    except (FileNotFoundError, ValueError, RuntimeError) as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
 

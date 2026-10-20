@@ -1,0 +1,79 @@
+# snapback configuration — example
+#
+# Copy the section you need to the right place and edit it:
+#
+#   project-local:  <project>/.snapshotrc      (created by: snapback init --local)
+#   global:         ~/.snapshotrc              (created by: snapback sampleconfig > ~/.snapshotrc)
+#
+# snapback reads, in order of priority:
+#   1. ./.snapshotrc in the current directory (project-local mode)
+#   2. an explicit --config PATH, or $SNAPSHOTRC
+#   3. ~/.snapshotrc (global mode)
+#
+# Values may be quoted with ' or ". Quote any value containing spaces: the file is
+# read like shell assignments, and an unquoted space-separated list breaks it.
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PROJECT-LOCAL (recommended for repositories and agent workflows)
+# ─────────────────────────────────────────────────────────────────────────────
+# Snapshots live inside the project, so a rollback needs no global state and each
+# project keeps its own history. Create it with:
+#
+#   cd /path/to/project
+#   snapback init --local                      # snapshots in ./.snapshots
+#   snapback init --local --snapshots-dir .snapback   # or any directory you prefer
+#
+# init writes this file, creates the snapshot directory and adds both the snapshot
+# directory and .snapshotrc to .gitignore.
+
+# Directories to back up. '.' means the whole project.
+DIRS='.'
+
+# Where snapshots are stored. Must stay inside the project. Use the same directory
+# you passed to --snapshots-dir. This directory is excluded from its own snapshots,
+# so pointing it somewhere else never makes snapshots of snapshots.
+TARGETBASE='./.snapback'
+
+# Optional extra rsync parameters. Keep them quoted.
+# Examples:
+#   --max-size=10m          skip files larger than 10MB
+#   --exclude=*.pyc         skip Python bytecode
+#   --exclude=build/        skip a build directory
+RSYNC_PARAMS=''
+
+# Retention defaults (only set these if you need different rotation):
+# H_SNAPS=23      hourly snapshots kept
+# D_SNAPS=7       daily snapshots kept
+# W_SNAPS=4       weekly snapshots kept
+# M_SNAPS=12      monthly snapshots kept
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GLOBAL (traditional: snapshots outside the project, absolute paths required)
+# ─────────────────────────────────────────────────────────────────────────────
+# DIRS='/home/you/Documents /home/you/Projects'
+# TARGETBASE='/home/you/.Snapshots'
+# RSYNC_PARAMS=''
+#
+# Global mode accepts absolute paths only, and it does not apply .gitignore
+# filtering: everything under DIRS is copied.
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Restoring — read this before your first rollback
+# ─────────────────────────────────────────────────────────────────────────────
+# snapback recover <snapshot>     full rollback: restores the snapshot over the
+#                                 project, deleting files added since (protected
+#                                 paths below are never touched)
+#   --dry-run                     show what would change, change nothing
+#   --keep-existing               restore only what is missing; never delete or
+#                                 overwrite — the safe choice when unsure
+#
+# snapback undel <snapshot>       restore deleted files only; never deletes
+#
+# Paths that snapshots never contain are protected from deletion: .git, gitignored
+# files and directories, the snapshot directory itself, and this config file.
+#
+# Verify a rollback before trusting it: after recovering, check that .git still
+# exists and that your gitignored content is still there.

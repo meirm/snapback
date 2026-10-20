@@ -82,13 +82,11 @@ class BackupManager:
         if ignore_existing:
             cmd.append("--ignore-existing")
 
-        # In project-local mode, add gitignore filtering and default exclusions
+        # In project-local mode, add gitignore filtering and default exclusions.
+        # The exclusion set follows the configured snapshot directory, so pointing
+        # the project at a different directory never snapshots the snapshots.
         if self.config.is_local:
-            # Respect .gitignore patterns
-            cmd.append("--filter=:- .gitignore")
-            # Always exclude .git and .snapshots directories
-            cmd.append("--exclude=.git")
-            cmd.append("--exclude=.snapshots")
+            cmd.extend(self.config.local_excludes)
 
         # Add custom rsync parameters from config
         if self.config.rsync_params:

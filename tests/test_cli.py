@@ -116,12 +116,13 @@ def test_cmd_recover(config_file):
     args.config = str(config_file)
     args.snapshot = "hour-1"
     args.dry_run = False
+    args.keep_existing = False
 
     with patch("snapback.recovery.RecoveryManager.recover") as mock_recover:
         result = cli.cmd_recover(args)
 
         assert result == 0
-        mock_recover.assert_called_once_with("hour-1", dry_run=False)
+        mock_recover.assert_called_once_with("hour-1", dry_run=False, keep_existing=False)
 
 
 def test_cmd_recover_missing_snapshot(config_file):

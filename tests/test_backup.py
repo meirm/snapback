@@ -249,7 +249,7 @@ def test_run_rsync_local_mode_gitignore_filter(config):
 
 
 def test_run_rsync_local_mode_exclusions(config):
-    """Test rsync in local mode excludes .git and .snapshots."""
+    """Test rsync in local mode excludes .git, the snapshot dir and the config."""
     config.is_local = True
     config.config_path = None  # Prevent workspace validation in tests
     manager = BackupManager(config)
@@ -260,9 +260,10 @@ def test_run_rsync_local_mode_exclusions(config):
         manager.run_rsync("/source/path", Path("/target/path"))
 
         args = mock_run.call_args[0][0]
-        # Should exclude .git and .snapshots
+        # Excludes .git, the configured snapshot directory and the local config
         assert "--exclude=.git" in args
-        assert "--exclude=.snapshots" in args
+        assert "--exclude=snapshots" in args, "exclusion must follow TARGETBASE"
+        assert "--exclude=.snapshotrc" in args
 
 
 def test_run_rsync_global_mode_no_filter(config):
@@ -279,7 +280,8 @@ def test_run_rsync_global_mode_no_filter(config):
         # Should NOT include gitignore filter in global mode
         assert "--filter=:- .gitignore" not in args
         assert "--exclude=.git" not in args
-        assert "--exclude=.snapshots" not in args
+        assert "--exclude=snapshots" not in args
+        assert "--exclude=.snapshotrc" not in args
 
 
 def test_run_rsync_local_mode_with_custom_params(config):
@@ -298,7 +300,7 @@ def test_run_rsync_local_mode_with_custom_params(config):
         # Should have both local mode filters and custom params
         assert "--filter=:- .gitignore" in args
         assert "--exclude=.git" in args
-        assert "--exclude=.snapshots" in args
+        assert "--exclude=snapshots" in args, "exclusion must follow TARGETBASE"
         assert "--exclude=*.log" in args
         assert "--max-size=5m" in args
 
@@ -351,7 +353,7 @@ def test_run_rsync_local_mode_all_flags_together(config):
         # Local mode flags
         assert "--filter=:- .gitignore" in args
         assert "--exclude=.git" in args
-        assert "--exclude=.snapshots" in args
+        assert "--exclude=snapshots" in args, "exclusion must follow TARGETBASE"
 
         # Custom params
         assert "--verbose" in args
