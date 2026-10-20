@@ -124,6 +124,15 @@ pip install snapback
 uv pip install snapback
 ```
 
+From a cloned repository, `uv sync` sets up everything — the project and the `dev` dependency
+group (pytest, coverage, black, ruff) — in one step:
+
+```bash
+git clone https://github.com/meirm/snapback.git
+cd snapback
+uv sync
+```
+
 ### Option 3: Install from Source
 
 ```bash
@@ -131,8 +140,8 @@ uv pip install snapback
 git clone https://github.com/meirm/snapback.git
 cd snapback
 
-# Install in development mode
-uv pip install -e ".[dev]"
+# Install in development mode, with the test and lint tools
+uv pip install -e ".[dev]"    # or: pip install -e ".[dev]"
 ```
 
 ### Verify Installation
