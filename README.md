@@ -40,6 +40,78 @@ Unlike traditional backup systems that create full copies of your data, snapback
 
 Whether you're a developer protecting working directories, a sysadmin managing servers, or a power user running a home NAS, snapback provides a transparent, reliable, and efficient backup solution that Just Works™.
 
+## Two implementations
+
+| Script | Scope | Status |
+| --- | --- | --- |
+| `snapback.sh` | project-local **and** global | current bash implementation |
+| `snapback` | global only (`~/.Snapshots`) | original version, kept as-is |
+
+The rest of this document describes the original `snapback`. Everything below under
+*Project-local snapshots* applies to `snapback.sh`, which is the recommended entry point and
+carries the same commands and safety rules as the Python implementation on `master`.
+
+---
+
+## Project-local snapshots (`snapback.sh`)
+
+Snapshots live inside the project, so a rollback needs no global state and every project keeps
+its own history.
+
+```bash
+cd /path/to/project
+./snapback.sh init --local                        # snapshots in ./.snapshots
+./snapback.sh init --local --snapshots-dir .snapback   # or any directory you prefer
+
+./snapback.sh hourly                              # checkpoint
+./snapback.sh tag hour-0 before-refactor          # keep a state beyond rotation
+./snapback.sh list                                # what exists, and how old
+
+./snapback.sh recover --dry-run hour-1            # preview a rollback
+./snapback.sh recover --keep-existing hour-1      # restore only what is missing
+./snapback.sh recover hour-1                      # restore; never deletes anything
+./snapback.sh recover hour-1 --full               # full rollback: deletes files added since
+```
+
+`init` writes `./.snapshotrc`, creates the snapshot directory and adds both it and `.snapshotrc`
+to `.gitignore`. The snapshot directory is configuration, not a fixed name: it must stay inside
+the project (`init` refuses absolute or escaping paths), and it is excluded from its own
+snapshots — pointing a project at `.snapback` never snapshots the snapshots.
+
+### Restoring
+
+| Goal | Command | Effect |
+| --- | --- | --- |
+| Restore the snapshot | `recover <snap>` | Brings files back, overwrites older copies, **never deletes** |
+| Preview | `recover <snap> --dry-run` | Reports what would change, changes nothing |
+| Missing files only | `recover <snap> --keep-existing` | Never deletes or overwrites |
+| Full rollback | `recover <snap> --full` | Also deletes files added since |
+| Undelete | `undel <snap>` | Restores missing files, never deletes |
+
+Paths that a snapshot never contains are protected from deletion by **any** restore — including
+`--full`: `.git`, gitignored files and directories, the snapshot directory itself and
+`.snapshotrc`. Everything else the snapshot does not contain is removed by `--full`.
+
+A restore that fails reports a non-zero exit status and names the protected paths; it is never
+reported as a success.
+
+### Layout
+
+`hour-0…hour-23`, `day-0…7`, `week-0…4`, `month-0…12` (created by `init`), plus tags. Rotation
+hard-links unchanged files, so a project with many snapshots costs roughly its own size plus the
+changes.
+
+### Tests
+
+```bash
+bash tests/bash/test_snapback.sh      # 44 checks, real rsync, real directories
+```
+
+The suite runs the tool against throwaway projects and asserts on files on disk — a restore that
+deletes `.git`, a snapshot directory that snapshots itself, or a failure reported as success.
+
+---
+
 ## Why snapback?
 
 - **Space Efficient**: Only changed files consume additional disk space. Unchanged files are hard-linked, typically using just 1.5-3x source size instead of 20-40x for full copies.
@@ -151,6 +223,16 @@ nano ~/.snapshotrc
 
 # 5. Verify backup was created
 ls -la ~/.Snapshots/hour-0/
+```
+
+To keep snapshots **inside a project** instead, use `snapback.sh` — see
+[Project-local snapshots](#project-local-snapshots-snapbacksh):
+
+```bash
+cd /path/to/project
+./snapback.sh init --local
+./snapback.sh hourly
+./snapback.sh list
 ```
 
 Your first snapshot is ready! See [Automated Backups with Cron](#automated-backups-with-cron) to set up automatic backups.
@@ -289,9 +371,15 @@ Simulates the backup operation without modifying any files. Use this to test con
 ./snapback --recover hour-3
 ```
 
-**WARNING**: Overwrites current files with the snapshot version. Use with caution.
+Overwrites current files with the snapshot version.
 
 Restores all directories from the specified snapshot, replacing current files. Useful for complete system rollback.
+
+With `snapback.sh` the same operation is `./snapback.sh recover hour-3` and it **never deletes**:
+files added since the snapshot are left in place. A full rollback — one that also removes files
+added since — is an explicit choice: `./snapback.sh recover hour-3 --full`. Even then, `.git`,
+gitignored content, the snapshot directory and the configuration file are protected. Preview any
+restore with `--dry-run` first.
 
 #### Recover Deleted Files Only
 
