@@ -17,8 +17,14 @@ def test_create_parser():
     assert "snapback" in parser.prog
 
 
-def test_cmd_init(config_file, capsys):
-    """Test init command."""
+def test_cmd_init(config_file, capsys, tmp_path, monkeypatch):
+    """Test init command.
+
+    Runs in a temporary directory: init auto-detects git repositories, so running
+    it from the repository would write .snapshotrc and .snapshots into the tree
+    under test.
+    """
+    monkeypatch.chdir(tmp_path)
     args = MagicMock()
     args.config = str(config_file)
 
@@ -275,12 +281,15 @@ def test_main_no_command(capsys):
         assert "usage" in captured.out.lower()
 
 
-def test_main_init_command(config_file):
-    """Test main with init command."""
+def test_main_init_command(config_file, tmp_path, monkeypatch):
+    """Test main with init command, in a temporary git repository."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".git").mkdir()  # init auto-detects a repository
     with patch("sys.argv", ["snapback", "--config", str(config_file), "init"]):
         result = cli.main()
 
         assert result == 0
+    assert (tmp_path / ".snapshotrc").exists(), "init should have written the local config here"
 
 
 def test_main_unknown_command():
