@@ -1,0 +1,136 @@
+name: CI
+
+# Two implementations live in this repository on two branches:
+#   master   — the Python package (src/snapback, pyproject.toml, tests/)
+#   snapbash — the bash implementation (snapback.sh, tests/bash/)
+# Each job checks that its implementation is present before doing anything, so the
+# same workflow is honest on both branches: the missing side reports why it skipped.
+on:
+  push:
+    branches: [main, master, snapbash]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+# A superseded run on the same ref tells you nothing: cancel it.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Python implementation ──────────────────────────────────────────────────
+  python:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Is the Python implementation on this branch?
+        id: presence
+        run: |
+          if [[ -f pyproject.toml ]]; then
+            echo "found=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=no" >> "$GITHUB_OUTPUT"
+            echo "No pyproject.toml here — the Python implementation lives on 'master'. Skipping."
+          fi
+
+      - name: Install uv
+        if: steps.presence.outputs.found == 'yes'
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install the project and its dev tools
+        if: steps.presence.outputs.found == 'yes'
+        run: uv sync --frozen
+
+      # The README documents 'pip install -e ".[dev]"' in several places. The dev
+      # tools are also a PEP 735 dependency group, which is a different namespace, so
+      # the extra can go missing without anything else noticing.
+      - name: The documented install command must resolve the dev extra
+        if: steps.presence.outputs.found == 'yes'
+        run: |
+          output="$(uv pip install --dry-run -e '.[dev]' 2>&1)" || rc=$?
+          printf '%s\n' "$output"
+          if [[ -n "${rc:-}" ]]; then
+            echo "::error::the documented install command failed (exit $rc)"
+            exit 1
+          fi
+          if grep -q 'does not have an extra' <<<"$output"; then
+            echo "::error::pyproject.toml declares no 'dev' extra, but the README documents '.[dev]'"
+            exit 1
+          fi
+
+      - name: Tests
+        if: steps.presence.outputs.found == 'yes'
+        run: uv run --frozen pytest -q
+
+      # The suite used to create .snapshotrc and .snapshots in whatever directory it
+      # ran from, and to append to that directory's .gitignore.
+      - name: Tests must not write into the tree
+        if: steps.presence.outputs.found == 'yes'
+        run: |
+          if [[ -n "$(git status --porcelain)" ]]; then
+            echo "::error::the test run modified the working tree:"
+            git status --porcelain
+            exit 1
+          fi
+
+      - name: Lint
+        if: steps.presence.outputs.found == 'yes'
+        run: |
+          uv run --frozen ruff check src/ tests/
+          uv run --frozen ruff format --check src/ tests/
+
+  # ── Bash implementation ───────────────────────────────────────────────────
+  bash:
+    name: Bash (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Two userlands on purpose: macOS gives BSD stat/find, openrsync and bash 3.2;
+        # Linux gives GNU stat/find, rsync and bash 5. A suite that passes on one of
+        # them hides failures on the other — that is how 'File: unbound variable' in
+        # 'list' survived until the suite was first run under GNU userland.
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Is the bash implementation on this branch?
+        id: presence
+        run: |
+          if [[ -f snapback.sh && -f tests/bash/test_snapback.sh ]]; then
+            echo "found=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=no" >> "$GITHUB_OUTPUT"
+            echo "No snapback.sh here — the bash implementation lives on 'snapbash'. Skipping."
+          fi
+
+      - name: Syntax
+        if: steps.presence.outputs.found == 'yes'
+        run: bash -n snapback.sh && bash -n tests/bash/test_snapback.sh
+
+      - name: shellcheck
+        if: steps.presence.outputs.found == 'yes' && runner.os == 'Linux'
+        run: shellcheck -S warning snapback.sh tests/bash/test_snapback.sh
+
+      - name: Integration suite
+        if: steps.presence.outputs.found == 'yes'
+        run: bash tests/bash/test_snapback.sh
+
+      - name: Suite must not write into the tree
+        if: steps.presence.outputs.found == 'yes'
+        run: |
+          if [[ -n "$(git status --porcelain)" ]]; then
+            echo "::error::the suite modified the working tree:"
+            git status --porcelain
+            exit 1
+          fi
