@@ -212,6 +212,23 @@ def test_list_snapshots(initialized_snapshots):
     assert snapshots == sorted(snapshots)
 
 
+def test_list_snapshots_can_skip_empty_placeholders(initialized_snapshots):
+    """init pre-creates the rotation skeleton; include_empty=False keeps only data.
+
+    Listing 46 placeholder directories buries the few snapshots that hold content,
+    so the flag exists to report what is actually there.
+    """
+    manager = initialized_snapshots
+
+    assert manager.list_snapshots() != []                      # placeholders exist
+    assert manager.list_snapshots(include_empty=False) == []   # none of them hold data
+
+    (manager.get_snapshot_path("hour-0") / "file.txt").write_text("x")
+
+    assert manager.list_snapshots(include_empty=False) == ["hour-0"]
+    assert "hour-1" in manager.list_snapshots()
+
+
 def test_create_hard_link_copy_missing_source(config, snapshot_base):
     """Test creating hard-link copy with missing source."""
     manager = SnapshotManager(config)

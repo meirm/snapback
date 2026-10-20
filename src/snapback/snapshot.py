@@ -272,8 +272,25 @@ class SnapshotManager:
         """
         return self.base_dir / snapshot_name
 
-    def list_snapshots(self) -> list[str]:
-        """List all available snapshots.
+    @staticmethod
+    def _has_content(snapshot_path: Path) -> bool:
+        """Return True if the snapshot directory holds at least one file.
+
+        ``init`` pre-creates the whole rotation skeleton, so most directories are
+        empty placeholders. Checking for content has to look inside subdirectories,
+        but stops at the first file found.
+        """
+        try:
+            return any(item.is_file() for item in snapshot_path.rglob("*"))
+        except OSError:
+            return False
+
+    def list_snapshots(self, include_empty: bool = True) -> list[str]:
+        """List available snapshots.
+
+        Args:
+            include_empty: When False, skip the empty placeholder directories that
+                ``init`` creates, leaving only snapshots that hold data.
 
         Returns:
             List of snapshot names (e.g., ['hour-0', 'hour-1', ...])
@@ -289,6 +306,8 @@ class SnapshotManager:
                 or item.name.startswith("week-")
                 or item.name.startswith("month-")
             ):
+                if not include_empty and not self._has_content(item):
+                    continue
                 snapshots.append(item.name)
 
         return sorted(snapshots)

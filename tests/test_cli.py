@@ -192,6 +192,9 @@ def test_cmd_delete(config_file):
 
 def test_cmd_list_snapshots(config_file, initialized_snapshots, capsys):
     """Test list command for snapshots."""
+    # A snapshot must hold data to appear: init's empty placeholders are summarised.
+    (initialized_snapshots.get_snapshot_path("hour-0") / "file.txt").write_text("x")
+
     args = MagicMock()
     args.config = str(config_file)
     args.filename = None
@@ -202,6 +205,23 @@ def test_cmd_list_snapshots(config_file, initialized_snapshots, capsys):
     assert result == 0
     captured = capsys.readouterr()
     assert "hour-0" in captured.out
+
+
+def test_cmd_list_hides_empty_placeholders(config_file, initialized_snapshots, capsys):
+    """The listing shows snapshots with data and summarises the placeholders."""
+    (initialized_snapshots.get_snapshot_path("hour-0") / "file.txt").write_text("x")
+
+    args = MagicMock()
+    args.config = str(config_file)
+    args.filename = None
+    args.tags = False
+
+    assert cli.cmd_list(args) == 0
+
+    out = capsys.readouterr().out
+    assert "hour-0" in out
+    assert "hour-1" not in out, "empty placeholder directories must not be listed"
+    assert "empty (placeholders created by init)" in out
 
 
 def test_cmd_list_tags(config_file, initialized_snapshots, capsys):

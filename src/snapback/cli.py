@@ -604,9 +604,10 @@ def cmd_list(args: argparse.Namespace) -> int:
 
     # List all snapshots
     snapshot_manager = SnapshotManager(config)
-    snapshots = snapshot_manager.list_snapshots()
+    all_snapshots = snapshot_manager.list_snapshots()
+    snapshots = snapshot_manager.list_snapshots(include_empty=False)
 
-    if not snapshots:
+    if not all_snapshots:
         print("No snapshots found")
         print("Run 'snapback init' to initialize the snapshot directory structure")
         return 0
@@ -620,6 +621,13 @@ def cmd_list(args: argparse.Namespace) -> int:
     for snapshot in snapshots:
         age_desc = get_snapshot_age_description(snapshot)
         print(f"  {snapshot:15s}  ({age_desc})")
+
+    # init pre-creates the rotation skeleton, so listing every directory buries the
+    # snapshots that hold data.
+    empty = len(all_snapshots) - len(snapshots)
+    if empty:
+        print()
+        print(f"{len(snapshots)} snapshots with data, {empty} empty (placeholders created by init)")
 
     # Also show tagged snapshots
     recovery_manager = RecoveryManager(config)
