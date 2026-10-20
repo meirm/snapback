@@ -11,7 +11,9 @@
 #
 set -uo pipefail
 
-SNAP="$(cd "$(dirname "$0")/../.." && pwd)/snapback.sh"
+# Override SNAP to run the suite against the tool under another interpreter, e.g.
+# SNAP=/tmp/wrapper bash tests/bash/test_snapback.sh, where the wrapper execs an older bash.
+SNAP="${SNAP:-$(cd "$(dirname "$0")/../.." && pwd)/snapback.sh}"
 WORK="$(mktemp -d)"
 trap 'chmod -R u+rwX "$WORK" 2>/dev/null; rm -rf "$WORK"' EXIT
 
