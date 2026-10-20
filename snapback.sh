@@ -291,18 +291,26 @@ do_tag() {  # $1 snapshot, $2 tag name
 
 do_list() {
     [[ -d "$TARGETBASE" ]] || die "snapshot directory not found: $TARGETBASE"
-    local now entry name age
+    local now entry name age first_file
+    local with_data=0 empty=0
     now="$(date +%s)"
     info "Snapshots in $TARGETBASE:"
     info ""
-    # shellcheck disable=SC2012
+    # init pre-creates the whole rotation skeleton (46 directories), so listing every
+    # directory buries the snapshots that actually hold data. Only report those.
     while IFS= read -r entry; do
         name="$(basename "$entry")"
+        first_file="$(find "$entry" -type f -print -quit 2>/dev/null)"
+        if [[ -z "$first_file" ]]; then
+            empty=$(( empty + 1 ))
+            continue
+        fi
+        with_data=$(( with_data + 1 ))
         age="$(_human_age $(( now - $(_mtime "$entry") )))"
         printf '  %-16s (%s)\n' "$name" "$age"
     done < <(ls -1dt "$TARGETBASE"/*/ 2>/dev/null)
     info ""
-    info "$(ls -1d "$TARGETBASE"/*/ 2>/dev/null | wc -l | tr -d ' ') snapshots"
+    info "$with_data snapshots with data, $empty empty (placeholders created by init)"
 }
 
 sampleconfig() {
