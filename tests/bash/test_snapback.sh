@@ -137,6 +137,12 @@ printf 'v9\n' > src/app.txt
 check "the tag kept the old state"  "v1" "$(cat .snapshots/baseline/src/app.txt)"
 check "the tag is listed"           "1" "$("$SNAP" list | grep -c baseline)"
 
+# list is the command that computes ages from file metadata, which is where the
+# BSD/GNU stat difference bites. Assert it runs clean and reports the summary.
+check "list exits 0"                "0" "$("$SNAP" list >/dev/null 2>&1; echo $?)"
+check "list prints the age summary" "1" "$("$SNAP" list | grep -c 'snapshots with data')"
+check "list prints no raw errors"   "0" "$("$SNAP" list 2>&1 | grep -cE 'unbound variable|No such file')"
+
 # ── 11. undel ───────────────────────────────────────────────────────────────
 section "undel"
 P5="$(new_project undel)"; cd "$P5" || exit 1

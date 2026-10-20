@@ -51,9 +51,16 @@ info() { printf '%s\n' "$*"; }
 warn() { printf '%s: warning: %s\n' "$PROG" "$*" >&2; }
 
 # ── Portable helpers ────────────────────────────────────────────────────────
-_mtime() {
-    stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || echo 0
-}
+# Probe for the stat variant once instead of chaining the two forms. Chaining does
+# not work: GNU stat reads '-f' as 'filesystem', prints a filesystem report on
+# STDOUT and only then fails, so the report is captured by the command substitution
+# alongside the fallback's output. That report contains a 'File: "..."' line, which
+# bash arithmetic later tries to expand as a variable named File.
+if stat --version >/dev/null 2>&1; then          # GNU coreutils
+    _mtime() { stat -c %Y "$1" 2>/dev/null || echo 0; }
+else                                             # BSD / macOS
+    _mtime() { stat -f %m "$1" 2>/dev/null || echo 0; }
+fi
 
 _human_age() {
     local s="$1"
